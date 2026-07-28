@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/*
+ * Just Shear design tokens — SRS Section 19.1.
+ * Central source of truth: components reference these Tailwind utilities
+ * (bg-page, text-ink, border-border, etc.) rather than repeating raw hex
+ * values. Tailwind v4's @theme block turns each --color- custom property
+ * into matching background, text, and border utilities automatically.
+ */
+@theme {
+  --color-page: #f7f4ed;
+  --color-surface: #ffffff;
+  --color-accent-sand: #d8c5a5;
+  --color-accent-blue: #a9cad2;
+  --color-brand-navy: #3b4e77;
+  --color-ink: #27313a;
+  --color-muted: #727a80;
+  --color-success: #6f9a78;
+  --color-warning: #c7974d;
+  --color-error: #b96b68;
+  --color-border: #e5e1d9;
+}
+
+html,
+body {
+  background-color: var(--color-page);
+  color: var(--color-ink);
+}
+
+/* Respect reduced-motion preferences wherever transitions are used. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

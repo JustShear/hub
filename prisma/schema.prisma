@@ -1,0 +1,1083 @@
+// Full Stage One schema per docs/architecture/architecture-review.html Section 4.
+// Organised by the same domain groupings as that document (4.1–4.9).
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider   = "prisma-client-js"
+  // Windows ARM64 dev machine: the default "library" engine is an x64 native
+  // addon that can't load into an arm64 Node process. "binary" spawns the
+  // engine as a child process instead, which Windows can run under x64
+  // emulation — same reason `prisma migrate` (which always uses a spawned
+  // schema-engine process) works without this setting.
+  engineType = "binary"
+}
+
+// ---------------------------------------------------------------------------
+// 4.1 Shop, staff & access control
+// ---------------------------------------------------------------------------
+
+model Shop {
+  id             String    @id @default(cuid())
+  shopifyDomain  String    @unique
+  shopifyShopGid String    @unique
+  adminApiToken  String // static custom-app Admin API token (encrypted at rest, never logged) — no OAuth flow, single shop
+  scopes         String
+  timezone       String    @default("Australia/Adelaide")
+  locale         String    @default("en-AU")
+  currency       String    @default("AUD")
+  installedAt    DateTime  @default(now())
+  uninstalledAt  DateTime?
+
+  staffUsers          StaffUser[]
+  roles               Role[]
+  orders              ShopifyOrder[]
+  settings            AppSetting[]
+  decorationTemplates DecorationTemplate[]
+  barcodes            Barcode[]
+  artworkAssets       CustomerArtworkAsset[]
+}
+
+model StaffUser {
+  id           String    @id @default(cuid())
+  shopId       String
+  shop         Shop      @relation(fields: [shopId], references: [id])
+  email        String
+  name         String
+  passwordHash String // node:crypto scrypt — no Shopify staff account involved
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  roles         StaffRole[]
+  savedViews    SavedView[]
+  notifications Notification[]
+  assignments   OrderAssignment[]
+
+  @@unique([shopId, email])
+}
+
+model Role {
+  id           String  @id @default(cuid())
+  shopId       String
+  shop         Shop    @relation(fields: [shopId], references: [id])
+  name         String // ADMINISTRATOR | MANAGER | ARTWORK_STAFF | PRINT_STAFF | PACKING_STAFF
+  isSystemRole Boolean @default(true)
+
+  permissions RolePermission[]
+  staff       StaffRole[]
+
+  @@unique([shopId, name])
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  key         String @unique // e.g. "proof.send", "override.export_without_approval"
+  description String
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model StaffRole {
+  staffUserId String
+  roleId      String
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id])
+  role        Role      @relation(fields: [roleId], references: [id])
+
+  @@id([staffUserId, roleId])
+}
+
+// ---------------------------------------------------------------------------
+// 4.2 Shopify order & line data
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  NEW
+  ARTWORK_REQUIRED
+  PROOFING_IN_PROGRESS
+  WAITING_CUSTOMER
+  PARTIALLY_APPROVED
+  READY_FOR_EXPORT
+  PARTIALLY_EXPORTED
+  EXPORTED_FOR_PRINT
+  IN_PRODUCTION
+  PARTIALLY_COMPLETE
+  READY_TO_PACK
+  PACKING
+  FULFILLED
+  ON_HOLD
+  CANCELLED
+  ARCHIVED
+}
+
+// Milestone 08 adds READY_TO_SEND and BLOCKED — the only two concepts in
+// that milestone's requested summary vocabulary genuinely missing from
+// here. Its "UNDETERMINED"/"NO_PROOFS_CREATED" both collapse onto the
+// existing PROOFS_NOT_STARTED value rather than being added as separate,
+// near-duplicate members: nothing this milestone does needs to distinguish
+// "no groups decided yet" from "no groups created yet" as different
+// persisted states, and renaming PROOFS_NOT_STARTED would ripple through
+// Milestone 06B/07's board/filter/label code for no real benefit.
+enum OrderProofSummary {
+  NO_PROOFS_REQUIRED
+  PROOFS_NOT_STARTED
+  PROOFS_IN_PROGRESS
+  READY_TO_SEND
+  WAITING_ON_CUSTOMER
+  CHANGES_REQUESTED
+  PARTIALLY_APPROVED
+  ALL_REQUIRED_PROOFS_APPROVED
+  PARTIALLY_EXPORTED
+  ALL_REQUIRED_PROOFS_EXPORTED
+  BLOCKED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum PropertyDetectedType {
+  TEXT
+  SELECTION
+  URL
+  FILE_UPLOAD
+  UNKNOWN
+}
+
+model ShopifyOrder {
+  id                   String    @id @default(cuid())
+  shopId               String
+  shop                 Shop      @relation(fields: [shopId], references: [id])
+  shopifyOrderGid      String
+  shopifyLegacyOrderId String? // numeric ID, kept only where useful (e.g. admin deep links)
+  orderNumber          String
+  shopifyCreatedAt     DateTime
+  shopifyUpdatedAt     DateTime?
+
+  // --- Shopify-owned: overwritten on every sync, never hand-edited ---
+  customerShopifyGid String?
+  customerEmail      String?
+  customerName       String?
+  customerPhone      String?
+  noteFromCustomer   String? // Shopify's buyer-supplied order note
+  tags               String[]
+  financialStatus    String?
+  fulfillmentStatus  String?
+  shippingMethod     String?
+  currencyCode       String?
+  subtotalPrice      Decimal?  @db.Decimal(12, 2)
+  totalPrice         Decimal?  @db.Decimal(12, 2)
+  totalDiscounts     Decimal?  @db.Decimal(12, 2)
+  totalTax           Decimal?  @db.Decimal(12, 2)
+  discountCodes      Json? // array of applied discount codes/amounts as received
+  shippingAddress    Json?
+  billingAddress     Json?
+  fulfillments       Json? // snapshot of fulfillment data relevant at import time
+  cancelledAt        DateTime?
+  cancelReason       String?
+  isPreorder         Boolean   @default(false)
+  lastSyncedAt       DateTime?
+
+  rawPayload        Json // full Shopify payload, retention-governed
+  rawPayloadPurgeAt DateTime?
+
+  // --- Production Hub-owned: a Shopify sync must never overwrite these ---
+  workflowStatus          OrderStatus       @default(NEW)
+  // Set on creation and every time workflowStatus actually changes (Milestone
+  // 06B's moveOrderWorkflowStatus is the only writer). Powers the board's
+  // "time in current state" — never substitute createdAt for this once a
+  // real transition has happened.
+  workflowStatusChangedAt DateTime          @default(now())
+  proofSummary            OrderProofSummary @default(PROOFS_NOT_STARTED)
+  priority                Priority          @default(NORMAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines               ShopifyOrderLine[]
+  proofRequirements   ProofRequirement[]
+  proofGroups         ProofGroup[]
+  assignments         OrderAssignment[]
+  dueDates            OrderDueDate[]
+  priorityHistory     OrderPriorityHistory[]
+  notes               OrderNote[]
+  activity            ActivityEvent[]
+  reprints            Reprint[]
+  syncJobs            ShopifySyncJob[]
+  integrationFailures IntegrationFailure[]
+  klaviyoDispatches   KlaviyoDispatch[]
+
+  @@unique([shopId, shopifyOrderGid])
+  @@index([shopId, workflowStatus])
+  @@index([shopId, priority])
+  @@index([shopId, proofSummary])
+}
+
+model ShopifyOrderLine {
+  id                  String       @id @default(cuid())
+  orderId             String
+  order               ShopifyOrder @relation(fields: [orderId], references: [id])
+  shopifyLineGid      String
+  shopifyProductGid   String?
+  shopifyVariantGid   String?
+  productTitle        String
+  variantTitle        String?
+  sku                 String?
+  barcode             String?
+  quantity            Int
+  fulfilledQuantity   Int?
+  imageUrl            String? // selection order: variant image -> product featured image -> null
+  discountAllocations Json?
+  createdAt           DateTime     @default(now())
+
+  properties       ShopifyLineProperty[]
+  artworkLinks     ArtworkOrderLineLink[]
+  proofGroupLines  ProofGroupOrderLine[]
+  proofRequirement ProofRequirement?
+
+  @@unique([orderId, shopifyLineGid])
+}
+
+model ShopifyLineProperty {
+  id            String               @id @default(cuid())
+  orderLineId   String
+  orderLine     ShopifyOrderLine     @relation(fields: [orderLineId], references: [id])
+  name          String
+  value         String
+  sortOrder     Int? // original ordering as received, where Shopify provides one
+  rawValue      Json? // raw {key, value} (or richer) source data, in case value alone loses information
+  detectedType  PropertyDetectedType @default(TEXT)
+  parsedAssetId String? // set once linked to a CustomerArtworkAsset
+  createdAt     DateTime             @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// 4.3 Artwork, proof requirement & proof groups
+// ---------------------------------------------------------------------------
+
+enum ProofRequirementValue {
+  REQUIRED
+  NOT_REQUIRED
+  PARTIALLY_REQUIRED
+  UNDETERMINED
+}
+
+enum NoProofReason {
+  UNPRINTED_PRODUCT
+  REPEAT_JOB_PREVIOUS_ARTWORK
+  APPROVED_STANDARD_LOGO
+  CUSTOMER_SUPPLIED_PRODUCTION_READY
+  INTERNAL_STAFF_ORDER
+  OTHER
+}
+
+enum DecorationMethod {
+  EMBROIDERY
+  DIGITAL_PRINT_DTF
+  SCREEN_PRINT
+  UNPRINTED
+  OTHER
+}
+
+enum ProofGroupStatus {
+  NOT_STARTED
+  DRAFT_IN_PROGRESS
+  READY_TO_SEND
+  SENT
+  VIEWED
+  CHANGES_REQUESTED
+  APPROVED
+  NO_PROOF_REQUIRED
+  READY_FOR_EXPORT
+  EXPORTED_FOR_PRINT
+  CANCELLED
+}
+
+enum ArtworkAssetSourceType {
+  // Referenced from where Shopify/OPTIS hosts it — not downloaded or
+  // duplicated. This is the only source type Milestone 04 (order import)
+  // creates; Milestone 11 (secure file storage) is what actually stores a
+  // copy in R2 and flips a record to STORED.
+  EXTERNAL_REFERENCE
+  STORED
+}
+
+model CustomerArtworkAsset {
+  id                 String                 @id @default(cuid())
+  shopId             String
+  shop               Shop                   @relation(fields: [shopId], references: [id])
+  originalFilename   String?
+  sourceType         ArtworkAssetSourceType @default(EXTERNAL_REFERENCE)
+  sourceUrl          String? // the original OPTIS/Shopify-hosted URL, preserved as-is, while sourceType is EXTERNAL_REFERENCE
+  storageKey         String? // set once actually copied into R2 (sourceType STORED)
+  mimeType           String? // unknown until either inferred or the file is fetched
+  sizeBytes          Int? // unknown until the file is fetched
+  parsingUncertain   Boolean                @default(false) // true when detection heuristics weren't fully confident this is a file
+  uploadedByCustomer Boolean                @default(true)
+  isReusableArtwork  Boolean                @default(false) // e.g. approved standard logo
+  createdAt          DateTime               @default(now())
+
+  links                ArtworkOrderLineLink[]
+  proofGroupLinks      ProofGroupArtworkAsset[]
+  proofVersionSourceOf ProofVersionSourceAsset[]
+
+  // Postgres allows multiple NULLs here — only enforces uniqueness among
+  // rows that do have a sourceUrl, which is exactly what re-import dedup needs.
+  @@unique([shopId, sourceUrl])
+}
+
+model ArtworkOrderLineLink {
+  id                   String               @id @default(cuid())
+  assetId              String
+  asset                CustomerArtworkAsset @relation(fields: [assetId], references: [id])
+  orderLineId          String
+  orderLine            ShopifyOrderLine     @relation(fields: [orderLineId], references: [id])
+  isManualReassignment Boolean              @default(false)
+  reassignmentReason   String?
+  createdByStaffId     String?
+  createdAt            DateTime             @default(now())
+
+  @@unique([assetId, orderLineId])
+}
+
+// Assessable at order, order-line OR proof-group scope — exactly one FK set.
+model ProofRequirement {
+  id           String            @id @default(cuid())
+  orderId      String
+  order        ShopifyOrder      @relation(fields: [orderId], references: [id])
+  orderLineId  String?           @unique
+  orderLine    ShopifyOrderLine? @relation(fields: [orderLineId], references: [id])
+  proofGroupId String?           @unique
+  proofGroup   ProofGroup?       @relation(fields: [proofGroupId], references: [id])
+
+  value            ProofRequirementValue
+  noProofReason    NoProofReason?
+  reasonNote       String?
+  decidedByStaffId String?
+  decidedAt        DateTime?
+  createdAt        DateTime              @default(now())
+}
+
+model ProofGroup {
+  id                  String           @id @default(cuid())
+  orderId             String
+  order               ShopifyOrder     @relation(fields: [orderId], references: [id])
+  // Staff-chosen label, e.g. "Left chest embroidery" — distinct from
+  // `placement` (a more specific sub-detail like "Left chest").
+  name                String
+  decorationMethod    DecorationMethod
+  // Nullable (Milestone 08): not every group has a physical placement —
+  // e.g. an UNPRINTED "unprinted garments" group, or a no-proof-required
+  // "production-ready artwork" group.
+  placement           String?
+  // Doubles as the group's staff-facing "Description" field.
+  artworkContextNote  String?
+  approximateWidthMm  Int?
+  approximateHeightMm Int?
+
+  status           ProofGroupStatus @default(NOT_STARTED)
+  requiresApproval Boolean          @default(true) // false once NO_PROOF_REQUIRED
+  noProofReason    NoProofReason?
+
+  assignedStaffId String?
+  dueDate         DateTime?
+  priority        Priority  @default(NORMAL)
+
+  // Cancellation (Milestone 08) — soft-cancel only, never deleted. Mirrors
+  // ShopifyOrder.cancelledAt/cancelReason's existing precedent.
+  cancelledAt        DateTime?
+  cancelReason       String?
+  cancelledByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderLines        ProofGroupOrderLine[]
+  artworkAssetLinks ProofGroupArtworkAsset[]
+  notes             ProofNote[]
+  versions          ProofVersion[]
+  productionExports ProductionExport[]
+  reprints          Reprint[]
+  proofRequirement  ProofRequirement?
+
+  @@index([orderId, status])
+  @@index([assignedStaffId])
+  @@index([dueDate])
+}
+
+// Links a customer upload or existing artwork asset to a proof group,
+// separately from ArtworkOrderLineLink's order-line association (which is
+// preserved and never removed by this link existing). Hard-deleted on
+// unlink — history is preserved via ActivityEvent, not a soft-delete flag,
+// consistent with how ArtworkOrderLineLink itself has no removal mechanism.
+model ProofGroupArtworkAsset {
+  id              String               @id @default(cuid())
+  proofGroupId    String
+  proofGroup      ProofGroup           @relation(fields: [proofGroupId], references: [id])
+  assetId         String
+  asset           CustomerArtworkAsset @relation(fields: [assetId], references: [id])
+  linkedByStaffId String?
+  createdAt       DateTime             @default(now())
+
+  @@unique([proofGroupId, assetId])
+}
+
+// Internal-only notes scoped to exactly one of a proof group or a specific
+// proof version (never both) — mirrors OrderNote's shape (author, body,
+// timestamp, no hard delete, no edit yet) but at proof scope instead of
+// order scope.
+model ProofNote {
+  id             String        @id @default(cuid())
+  proofGroupId   String?
+  proofGroup     ProofGroup?   @relation(fields: [proofGroupId], references: [id])
+  proofVersionId String?
+  proofVersion   ProofVersion? @relation(fields: [proofVersionId], references: [id])
+  authorStaffId  String
+  body           String
+  createdAt      DateTime      @default(now())
+
+  @@index([proofGroupId])
+  @@index([proofVersionId])
+}
+
+model ProofGroupOrderLine {
+  id           String           @id @default(cuid())
+  proofGroupId String
+  proofGroup   ProofGroup       @relation(fields: [proofGroupId], references: [id])
+  orderLineId  String
+  orderLine    ShopifyOrderLine @relation(fields: [orderLineId], references: [id])
+  quantity     Int
+
+  @@unique([proofGroupId, orderLineId])
+}
+
+// ---------------------------------------------------------------------------
+// 4.4 Proof versions, delivery & customer response
+// ---------------------------------------------------------------------------
+
+enum ProofVersionStatus {
+  DRAFT
+  READY_TO_SEND
+  SENT
+  VIEWED
+  APPROVED
+  CHANGES_REQUESTED
+  SUPERSEDED
+  CANCELLED
+}
+
+enum ResponseType {
+  APPROVED
+  CHANGES_REQUESTED
+}
+
+enum ChangeRequestCategory {
+  SPELLING
+  ARTWORK
+  COLOUR
+  SIZE
+  PLACEMENT
+  PRODUCT_ASSIGNMENT
+  OTHER
+}
+
+model ProofVersion {
+  id            String             @id @default(cuid())
+  proofGroupId  String
+  proofGroup    ProofGroup         @relation(fields: [proofGroupId], references: [id])
+  versionNumber Int
+  status        ProofVersionStatus @default(DRAFT)
+
+  customerMessage  String?
+  internalNote     String?
+  createdByStaffId String
+
+  // Client-generated, sent with the create-version request — a resubmission
+  // (double-click, lost-response retry) with the same key returns the
+  // already-created version instead of inserting a duplicate row.
+  idempotencyKey String? @unique
+
+  // Set when a newer version supersedes this one (Milestone 08 only
+  // supersedes a DRAFT/READY_TO_SEND version, never an APPROVED one).
+  supersededByVersionId String?       @unique
+  supersededByVersion   ProofVersion? @relation("ProofVersionSupersession", fields: [supersededByVersionId], references: [id])
+  supersedesVersion     ProofVersion? @relation("ProofVersionSupersession")
+
+  // Cancellation (Milestone 08) — soft-cancel only, never deleted.
+  cancelledAt        DateTime?
+  cancelReason       String?
+  cancelledByStaffId String?
+
+  secureTokenHash String?   @unique
+  tokenExpiresAt  DateTime?
+  tokenRevokedAt  DateTime?
+
+  sentAt       DateTime?
+  viewedAt     DateTime?
+  respondedAt  DateTime?
+  approvedAt   DateTime?
+  supersededAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  assets            ProofAsset[]
+  sourceAssets      ProofVersionSourceAsset[]
+  notes             ProofNote[]
+  responses         CustomerProofResponse[]
+  productionExports ProductionExport[]
+  reminders         ProofReminder[]
+
+  @@unique([proofGroupId, versionNumber])
+}
+
+model ProofAsset {
+  id             String       @id @default(cuid())
+  proofVersionId String
+  proofVersion   ProofVersion @relation(fields: [proofVersionId], references: [id])
+  storageKey     String
+  isPrimary      Boolean      @default(false)
+  sortOrder      Int          @default(0)
+
+  // File metadata (Milestone 08) — populated at upload time by the storage
+  // adapter / upload handler, never trusted from the client alone for
+  // mimeType (re-detected from the file's magic bytes server-side).
+  originalFilename  String?
+  mimeType          String?
+  sizeBytes         Int?
+  checksum          String? // sha256, hex-encoded
+  width             Int?
+  height            Int?
+  uploadedByStaffId String?
+
+  createdAt DateTime @default(now())
+}
+
+// Which customer uploads / existing artwork assets this specific proof
+// version was produced from — distinct from ProofGroupArtworkAsset, which
+// links assets at the group level regardless of which version used them.
+model ProofVersionSourceAsset {
+  id             String               @id @default(cuid())
+  proofVersionId String
+  proofVersion   ProofVersion         @relation(fields: [proofVersionId], references: [id])
+  assetId        String
+  asset          CustomerArtworkAsset @relation(fields: [assetId], references: [id])
+  createdAt      DateTime             @default(now())
+
+  @@unique([proofVersionId, assetId])
+}
+
+model CustomerProofResponse {
+  id               String                  @id @default(cuid())
+  proofVersionId   String
+  proofVersion     ProofVersion            @relation(fields: [proofVersionId], references: [id])
+  responseType     ResponseType
+  customerNote     String?
+  changeCategories ChangeRequestCategory[]
+  respondedAt      DateTime                @default(now())
+  requestIp        String?
+  requestUserAgent String?
+  idempotencyKey   String                  @unique // prevents duplicate approval, SRS Section 24.1
+
+  assets CustomerResponseAsset[]
+}
+
+model CustomerResponseAsset {
+  id         String                @id @default(cuid())
+  responseId String
+  response   CustomerProofResponse @relation(fields: [responseId], references: [id])
+  storageKey String
+  createdAt  DateTime              @default(now())
+}
+
+model ProductionExport {
+  id                       String       @id @default(cuid())
+  proofGroupId             String
+  proofGroup               ProofGroup   @relation(fields: [proofGroupId], references: [id])
+  proofVersionId           String
+  proofVersion             ProofVersion @relation(fields: [proofVersionId], references: [id])
+  exportedByStaffId        String
+  destination              String?
+  productionFileStorageKey String?
+  internalNote             String?
+  isOverride               Boolean      @default(false)
+  overrideReason           String?
+  exportedAt               DateTime     @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// 4.5 Assignment, due dates, priority & overrides
+// ---------------------------------------------------------------------------
+
+enum AssignmentRole {
+  OWNER
+  ARTWORK
+  PACKING
+  PRODUCTION
+  GENERAL
+}
+
+enum DueDateType {
+  INTERNAL
+  CUSTOMER_PROMISED
+  PRODUCTION
+  DISPATCH
+}
+
+enum DueDateSource {
+  AUTOMATIC
+  MANUAL_OVERRIDE
+  SHOPIFY
+}
+
+enum OverrideType {
+  SKIP_WORKFLOW_STEP
+  EXPORT_WITHOUT_APPROVAL
+  REOPEN_APPROVED_PROOF
+  INVALIDATE_APPROVAL
+  MARK_NO_PROOF_REQUIRED
+  SUPPRESS_REMINDER
+  CHANGE_DUE_DATE
+  OVERRIDE_FREIGHT_RECOMMENDATION
+  RESOLVE_IGNORE_INTEGRATION_FAILURE
+  BYPASS_BARCODE_VALIDATION
+}
+
+model OrderAssignment {
+  id           String         @id @default(cuid())
+  orderId      String
+  order        ShopifyOrder   @relation(fields: [orderId], references: [id])
+  staffUserId  String
+  staffUser    StaffUser      @relation(fields: [staffUserId], references: [id])
+  role         AssignmentRole
+  assignedAt   DateTime       @default(now())
+  unassignedAt DateTime?
+
+  @@index([orderId])
+  @@index([staffUserId])
+}
+
+model OrderDueDate {
+  id             String        @id @default(cuid())
+  orderId        String
+  order          ShopifyOrder  @relation(fields: [orderId], references: [id])
+  type           DueDateType
+  dueDate        DateTime
+  source         DueDateSource
+  setByStaffId   String?
+  overrideReason String?
+  createdAt      DateTime      @default(now())
+
+  @@unique([orderId, type])
+}
+
+model OrderPriorityHistory {
+  id           String       @id @default(cuid())
+  orderId      String
+  order        ShopifyOrder @relation(fields: [orderId], references: [id])
+  priority     Priority
+  reason       String?
+  setByStaffId String
+  createdAt    DateTime     @default(now())
+}
+
+model ManualOverride {
+  id                      String       @id @default(cuid())
+  shopId                  String
+  overrideType            OverrideType
+  relatedEntityType       String
+  relatedEntityId         String
+  previousValue           Json?
+  newValue                Json?
+  reason                  String
+  staffUserId             String
+  requiresManagerApproval Boolean      @default(false)
+  approvedByStaffId       String?
+  approvedAt              DateTime?
+  createdAt               DateTime     @default(now())
+
+  attachments ManualOverrideAttachment[]
+}
+
+model ManualOverrideAttachment {
+  id         String         @id @default(cuid())
+  overrideId String
+  override   ManualOverride @relation(fields: [overrideId], references: [id])
+  storageKey String
+}
+
+// ---------------------------------------------------------------------------
+// 4.6 Notes, customer communication, activity & notifications
+// ---------------------------------------------------------------------------
+
+enum NoteVisibility {
+  INTERNAL
+  CUSTOMER_VISIBLE
+}
+
+// Customer-facing only — staff alerts (proof approved, changes requested,
+// integration failure) are NOT sent as email; they're Notification rows only.
+enum KlaviyoEventType {
+  PROOF_SENT
+  PROOF_REVISION_SENT
+  EXPORTED_FOR_PRINT
+  PROOF_REMINDER
+}
+
+// "SENT" means Klaviyo accepted the event, not that the resulting Flow email
+// was delivered — Klaviyo owns the send once the event lands.
+enum EmailStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+enum ActorType {
+  STAFF
+  CUSTOMER
+  SYSTEM
+}
+
+model OrderNote {
+  id            String         @id @default(cuid())
+  orderId       String
+  order         ShopifyOrder   @relation(fields: [orderId], references: [id])
+  authorStaffId String
+  body          String
+  visibility    NoteVisibility
+  createdAt     DateTime       @default(now())
+}
+
+model ProofReminder {
+  id                  String       @id @default(cuid())
+  proofVersionId      String
+  proofVersion        ProofVersion @relation(fields: [proofVersionId], references: [id])
+  scheduledFor        DateTime
+  sentAt              DateTime?
+  suppressed          Boolean      @default(false)
+  suppressedReason    String?
+  suppressedByStaffId String?
+  attemptNumber       Int          @default(1)
+  klaviyoDispatchId   String?
+  createdAt           DateTime     @default(now())
+}
+
+// One row per customer-facing Klaviyo dispatch. There is no provider message
+// ID to store because Klaviyo's Flow (built in the Klaviyo UI, not via API)
+// owns the actual send — see docs/architecture/architecture-review.html Section 2.
+model KlaviyoDispatch {
+  id                String           @id @default(cuid())
+  shopId            String
+  eventType         KlaviyoEventType
+  klaviyoMetricName String // the custom event name tracked, e.g. "Proof Ready For Review"
+  recipientEmail    String
+  orderId           String?
+  order             ShopifyOrder?    @relation(fields: [orderId], references: [id])
+  proofGroupId      String?
+  eventProperties   Json // merge fields sent with the event: order_number, review_proof_button, etc.
+  status            EmailStatus      @default(QUEUED)
+  klaviyoEventId    String? // ID returned by the Klaviyo track-event call, if any
+  queuedAt          DateTime         @default(now())
+  sentAt            DateTime?
+  failedAt          DateTime?
+  retryCount        Int              @default(0)
+  idempotencyKey    String           @unique
+}
+
+model ActivityEvent {
+  id           String        @id @default(cuid())
+  shopId       String
+  orderId      String?
+  order        ShopifyOrder? @relation(fields: [orderId], references: [id])
+  entityType   String
+  entityId     String
+  eventType    String
+  summary      String
+  metadata     Json?
+  actorStaffId String?
+  actorType    ActorType
+  createdAt    DateTime      @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model Notification {
+  id                String    @id @default(cuid())
+  staffUserId       String
+  staffUser         StaffUser @relation(fields: [staffUserId], references: [id])
+  type              String
+  title             String
+  body              String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  readAt            DateTime?
+  createdAt         DateTime  @default(now())
+}
+
+model SavedView {
+  id          String    @id @default(cuid())
+  staffUserId String
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id])
+  name        String
+  isDefault   Boolean   @default(false)
+  filters     Json
+  sortOrder   Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// 4.7 Shopify sync & the integration failure queue
+// ---------------------------------------------------------------------------
+
+enum SyncDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum IntegrationType {
+  SHOPIFY_ORDER_IMPORT
+  SHOPIFY_TAG_UPDATE
+  WEBHOOK
+  EMAIL
+  FILE_STORAGE
+  OPTIS_PARSING
+  PROOF_LINK
+  STARSHIPIT
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IntegrationFailureStatus {
+  NEW
+  RETRYING
+  NEEDS_ATTENTION
+  ASSIGNED
+  RESOLVED
+  IGNORED
+}
+
+model ShopifySyncJob {
+  id             String        @id @default(cuid())
+  shopId         String
+  orderId        String?
+  order          ShopifyOrder? @relation(fields: [orderId], references: [id])
+  direction      SyncDirection
+  jobType        String
+  payload        Json?
+  status         JobStatus     @default(PENDING)
+  idempotencyKey String        @unique
+  attempts       Int           @default(0)
+  nextRetryAt    DateTime? // exponential backoff scheduling; null/past = eligible now
+  lastError      String?
+  createdAt      DateTime      @default(now())
+  completedAt    DateTime?
+
+  @@index([status, nextRetryAt])
+}
+
+model IntegrationFailure {
+  id                    String          @id @default(cuid())
+  shopId                String
+  integration           IntegrationType
+  action                String
+  relatedOrderId        String?
+  order                 ShopifyOrder?   @relation(fields: [relatedOrderId], references: [id])
+  relatedProofGroupId   String?
+  relatedEmailMessageId String?
+  relatedJobId          String?
+
+  summary         String // user-friendly
+  technicalDetail String? // sanitised — no secrets, ever
+
+  severity        Severity
+  status          IntegrationFailureStatus @default(NEW)
+  assignedStaffId String?
+
+  attemptCount    Int       @default(0)
+  firstFailureAt  DateTime  @default(now())
+  latestFailureAt DateTime  @default(now())
+  nextRetryAt     DateTime?
+
+  resolutionNote    String?
+  resolvedByStaffId String?
+  resolvedAt        DateTime?
+
+  attempts IntegrationAttempt[]
+}
+
+model IntegrationAttempt {
+  id           String             @id @default(cuid())
+  failureId    String
+  failure      IntegrationFailure @relation(fields: [failureId], references: [id])
+  attemptedAt  DateTime           @default(now())
+  succeeded    Boolean
+  errorSummary String?
+}
+
+// ---------------------------------------------------------------------------
+// 4.8 Reprints, barcodes & forward-compatible warehouse fields
+// ---------------------------------------------------------------------------
+
+enum ReprintReasonCategory {
+  PLACEMENT
+  PRINT_QUALITY
+  EMBROIDERY
+  WRONG_GARMENT
+  WRONG_SIZE
+  WRONG_COLOUR
+  PRODUCTION_DAMAGE
+  PACKING_DAMAGE
+  ARTWORK_ERROR
+  MACHINE_FAILURE
+  OTHER
+}
+
+enum ReprintStatus {
+  REPORTED
+  REVIEW_REQUIRED
+  APPROVED
+  WAITING_STOCK
+  READY_FOR_PRODUCTION
+  IN_PRODUCTION
+  QUALITY_CHECK
+  COMPLETE
+  CANCELLED
+}
+
+enum BarcodeType {
+  VARIANT
+  SKU
+  INTERNAL_PRODUCT
+  BIN
+  ORDER
+  PICK_LIST
+  PRODUCTION_BATCH
+  PACKING_STATION
+  PARCEL
+  REPRINT
+}
+
+enum ScanResult {
+  MATCH
+  MISMATCH
+  OVERRIDDEN
+  UNKNOWN
+}
+
+model Reprint {
+  id                     String       @id @default(cuid())
+  orderId                String
+  order                  ShopifyOrder @relation(fields: [orderId], references: [id])
+  orderLineId            String?
+  proofGroupId           String?
+  proofGroup             ProofGroup?  @relation(fields: [proofGroupId], references: [id])
+  approvedProofVersionId String?
+
+  quantity         Int
+  reasonCategory   ReprintReasonCategory
+  explanation      String
+  responsibleStage String?
+  stockImpact      String?
+
+  status       ReprintStatus @default(REPORTED)
+  priority     Priority      @default(NORMAL)
+  dueDate      DateTime?
+  ownerStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets ReprintAsset[]
+}
+
+model ReprintAsset {
+  id         String   @id @default(cuid())
+  reprintId  String
+  reprint    Reprint  @relation(fields: [reprintId], references: [id])
+  storageKey String
+  createdAt  DateTime @default(now())
+}
+
+model Barcode {
+  id                String      @id @default(cuid())
+  shopId            String
+  shop              Shop        @relation(fields: [shopId], references: [id])
+  type              BarcodeType
+  value             String
+  relatedEntityType String?
+  relatedEntityId   String?
+  createdAt         DateTime    @default(now())
+
+  @@unique([shopId, type, value])
+}
+
+// Not exposed in Stage One UI — table exists so Stage Two scanning
+// doesn't require a schema migration mid-flight.
+model ScanEvent {
+  id                String      @id @default(cuid())
+  shopId            String
+  scannedValue      String
+  barcodeType       BarcodeType
+  expectedValue     String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  staffUserId       String?
+  station           String?
+  result            ScanResult
+  overrideReason    String?
+  createdAt         DateTime    @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// 4.9 Configuration
+// ---------------------------------------------------------------------------
+
+model AppSetting {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([shopId, key])
+}
+
+model DecorationTemplate {
+  id        String           @id @default(cuid())
+  shopId    String
+  shop      Shop             @relation(fields: [shopId], references: [id])
+  method    DecorationMethod
+  wording   String
+  isDefault Boolean          @default(true)
+  updatedAt DateTime         @updatedAt
+
+  @@unique([shopId, method])
+}

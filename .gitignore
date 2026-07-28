@@ -1,0 +1,20 @@
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.log
+/node_modules/
+
+# React Router
+/.react-router/
+/build/
+
+# Testing
+/test-results/
+/playwright-report/
+/blob-report/
+/coverage/
+
+# Local-disk proof-file storage (interim adapter — see ADR-0004). Real
+# uploaded bytes never belong in source control.
+/.storage/

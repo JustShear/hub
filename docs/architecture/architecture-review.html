@@ -1,0 +1,1822 @@
+<title>Just Shear Production Hub — Architecture Review</title>
+<style>
+  :root {
+    --bg: #f7f4ed;
+    --card: #ffffff;
+    --sandy: #d8c5a5;
+    --lightblue: #a9cad2;
+    --darkblue: #3b4e77;
+    --text: #27313a;
+    --muted: #727a80;
+    --success: #6f9a78;
+    --warning: #c7974d;
+    --error: #b96b68;
+    --border: #e5e1d9;
+    --code-bg: #27313a;
+    --code-text: #ede9df;
+    --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    --sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b2027;
+      --card: #242b34;
+      --sandy: #c2a97e;
+      --lightblue: #7fa4ae;
+      --darkblue: #8fa6d6;
+      --text: #eae6dc;
+      --muted: #9ba3aa;
+      --success: #8bb893;
+      --warning: #d9aa61;
+      --error: #d18784;
+      --border: #39404a;
+      --code-bg: #12161c;
+      --code-text: #e7e2d6;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1b2027;
+    --card: #242b34;
+    --sandy: #c2a97e;
+    --lightblue: #7fa4ae;
+    --darkblue: #8fa6d6;
+    --text: #eae6dc;
+    --muted: #9ba3aa;
+    --success: #8bb893;
+    --warning: #d9aa61;
+    --error: #d18784;
+    --border: #39404a;
+    --code-bg: #12161c;
+    --code-text: #e7e2d6;
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f4ed;
+    --card: #ffffff;
+    --sandy: #d8c5a5;
+    --lightblue: #a9cad2;
+    --darkblue: #3b4e77;
+    --text: #27313a;
+    --muted: #727a80;
+    --success: #6f9a78;
+    --warning: #c7974d;
+    --error: #b96b68;
+    --border: #e5e1d9;
+    --code-bg: #27313a;
+    --code-text: #ede9df;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .shell {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 780px);
+    gap: 48px;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 56px 24px 120px;
+    align-items: start;
+  }
+  nav.toc {
+    position: sticky;
+    top: 32px;
+    font-family: var(--sans);
+    font-size: 13px;
+  }
+  nav.toc .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-size: 11px;
+    margin-bottom: 14px;
+    font-weight: 600;
+  }
+  nav.toc a {
+    display: block;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  nav.toc a:hover {
+    color: var(--darkblue);
+    border-color: var(--darkblue);
+  }
+  header.doc-head {
+    margin-bottom: 8px;
+  }
+  header.doc-head .kicker {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 12px;
+    color: var(--darkblue);
+    font-weight: 600;
+    margin: 0 0 12px;
+  }
+  header.doc-head h1 {
+    font-family: var(--serif);
+    font-size: 2.5rem;
+    line-height: 1.1;
+    margin: 0 0 10px;
+    text-wrap: balance;
+    color: var(--text);
+  }
+  header.doc-head p.sub {
+    color: var(--muted);
+    font-size: 1.05rem;
+    margin: 0 0 20px;
+    max-width: 60ch;
+  }
+  header.doc-head .meta {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 0;
+    margin-bottom: 36px;
+  }
+  header.doc-head .meta b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  main section {
+    margin-bottom: 56px;
+  }
+  main section h2 {
+    font-family: var(--serif);
+    font-size: 1.55rem;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+    margin: 0 0 20px;
+    scroll-margin-top: 24px;
+  }
+  main section h3 {
+    font-family: var(--sans);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--darkblue);
+    margin: 28px 0 10px;
+    scroll-margin-top: 24px;
+  }
+  main p {
+    margin: 0 0 14px;
+    max-width: 68ch;
+  }
+  main ul,
+  main ol {
+    margin: 0 0 16px;
+    padding-left: 22px;
+  }
+  main li {
+    margin-bottom: 6px;
+    max-width: 66ch;
+  }
+
+  .callout {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--darkblue);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 0 0 20px;
+  }
+  .callout.finding {
+    border-left-color: var(--error);
+  }
+  .callout.improve {
+    border-left-color: var(--warning);
+  }
+  .callout.note {
+    border-left-color: var(--lightblue);
+  }
+  .callout .tag {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .callout.finding .tag {
+    color: var(--error);
+  }
+  .callout.improve .tag {
+    color: var(--warning);
+  }
+  .callout.note .tag {
+    color: var(--lightblue);
+  }
+  .callout p:last-child {
+    margin-bottom: 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 0 0 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: color-mix(in srgb, var(--sandy) 35%, var(--card));
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    font-weight: 700;
+  }
+  tr:last-child td {
+    border-bottom: none;
+  }
+  td.num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .codewrap {
+    overflow-x: auto;
+    border-radius: 8px;
+    margin: 0 0 20px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    margin: 0;
+    padding: 16px 18px;
+    background: var(--code-bg);
+    color: var(--code-text);
+    font-family: var(--mono);
+    font-size: 12.6px;
+    line-height: 1.55;
+    white-space: pre;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.92em;
+  }
+  :not(pre) > code {
+    background: color-mix(in srgb, var(--sandy) 30%, transparent);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  .pill {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 99px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pill.crit {
+    background: color-mix(in srgb, var(--error) 22%, var(--card));
+    color: var(--error);
+  }
+  .pill.rec {
+    background: color-mix(in srgb, var(--warning) 22%, var(--card));
+    color: var(--warning);
+  }
+  .pill.ok {
+    background: color-mix(in srgb, var(--success) 22%, var(--card));
+    color: var(--success);
+  }
+
+  .tree {
+    font-family: var(--mono);
+    font-size: 12.6px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  .tree .comment {
+    color: var(--muted);
+  }
+
+  .mermaid {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .phase-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .phase-card h4 {
+    margin: 0 0 4px;
+    font-size: 1rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .phase-card .phase-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--darkblue);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .phase-card p {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 6px 0 0;
+  }
+
+  .decision-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .decision-list li {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+    max-width: none;
+  }
+  .decision-list .q {
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .decision-list .rec {
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+  .decision-list .rec b {
+    color: var(--success);
+    font-weight: 600;
+  }
+
+  footer {
+    max-width: 68ch;
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+  }
+
+  @media (max-width: 860px) {
+    .shell {
+      grid-template-columns: 1fr;
+    }
+    nav.toc {
+      position: static;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+      margin-bottom: 20px;
+    }
+  }
+</style>
+
+<div class="shell">
+  <nav class="toc">
+    <div class="eyebrow">Contents</div>
+    <a href="#understanding">1. Project understanding</a>
+    <a href="#findings">2. Issues &amp; gaps</a>
+    <a href="#folders">3. Folder structure</a>
+    <a href="#schema">4. Database schema</a>
+    <a href="#architecture">5. Architecture</a>
+    <a href="#milestones">6. Milestone plan</a>
+    <a href="#decisions">7. Decisions needed</a>
+  </nav>
+
+  <main>
+    <header class="doc-head">
+      <p class="kicker">Architecture Review — Pre-Build</p>
+      <h1>Just Shear Production Hub</h1>
+      <p class="sub">
+        A read of the SRS (v1.0), the gaps worth closing before code, and the schema, architecture
+        and milestone plan to build against.
+      </p>
+      <div class="meta">
+        <span><b>Source</b> Just_Shear_Production_Hub_SRS.docx, v1.0</span>
+        <span><b>Status</b> Awaiting approval — no code written</span>
+        <span><b>Prepared</b> 26 Jul 2026</span>
+      </div>
+    </header>
+
+    <section id="understanding">
+      <h2>1. Project understanding</h2>
+      <p>
+        Just Shear needs one operational system spanning Shopify order intake through artwork
+        proofing, production, picking, packing, freight, fulfilment, reprints and returns. Stage One
+        — the only stage being built now — covers proofing and the handover into print. Everything
+        after that (production queues, warehouse picking, Starshipit freight, returns) is deferred,
+        but the data model has to anticipate them so Stage One doesn't get rebuilt later.
+      </p>
+
+      <p>
+        The single most important architectural decision in the document, and the one everything
+        else hangs off, is this:
+      </p>
+
+      <div class="callout note">
+        <p class="tag">Central decision</p>
+        <p>
+          <b
+            >Order status and proof status are separate, and an order can hold multiple proof
+            groups, each with multiple retained proof versions.</b
+          >
+          Approving or rejecting one proof group never touches the others. A hoodie with an
+          embroidered logo and a printed back can have one proof group approved and exported while
+          the other is still on its third revision — the order itself just reflects a summary of
+          that mix.
+        </p>
+      </div>
+
+      <p>
+        Shopify stays the system of record for commerce — orders, customers, products, payments,
+        fulfilment. The Production Hub is the system of record for everything operational: proof
+        groups and versions, approvals, assignments, due dates, priority, notes, and — critically —
+        the audit trail of every override and every integration failure. That boundary (Section 11.1
+        of the SRS) is clean and worth protecting; the biggest risk to the project is letting
+        Shopify tags become a second source of truth instead of a visibility layer.
+      </p>
+
+      <p>
+        Six roles are defined (Administrator, Manager, Artwork/Proofing Staff, Print Staff, Packing
+        Staff, Customer), with granular server-side permission checks and a strong emphasis on
+        <em>reasoned</em> manual overrides — nothing bypasses the workflow without a recorded
+        reason, and some overrides need a second approval. Reliability is treated as a first-class
+        feature, not an afterthought: every external failure (Shopify, email, OPTIS parsing) lands
+        in a visible, retryable queue rather than disappearing into a log file.
+      </p>
+
+      <p>
+        Overall this is an unusually well-specified SRS — it already names its own open risks
+        (Appendix/Section 26), defines exact status enums (Appendix A), and gives Claude Code
+        explicit working rules. The gaps below are the ones it doesn't resolve.
+      </p>
+    </section>
+
+    <section id="findings">
+      <h2>2. Issues, gaps &amp; recommendations</h2>
+
+      <div class="callout note">
+        <p class="tag">Resolved — changes Section 21.1's implied stack</p>
+        <p>
+          <b>No individual Shopify staff logins.</b> Confirmed: the Hub is a
+          <b>standalone application</b>, not an embedded Shopify admin app. Staff never touch
+          Shopify at all — they log in directly to the Hub with an email + password account an
+          administrator creates for them. Shopify is reduced to a single backend integration: one
+          <b>custom app Admin API access token</b> (generated once in Shopify admin → Settings →
+          Apps → Develop apps), used server-side for order sync, tag updates and webhooks. No OAuth
+          flow, no App Bridge, no per-shop multi-tenant installation flow, no Polaris — this is
+          materially simpler than the embedded pattern Section 21.1 gestures at.
+        </p>
+        <p>
+          This also means the whole app — internal screens and customer proof pages alike — uses
+          <i>one</i> visual system: the Just Shear tokens in Section 19.1. There's no split between
+          "Shopify admin chrome" and "branded customer page" to maintain.
+        </p>
+        <p>
+          <b
+            >This is a significant change against Section 21.1 and Section 6's implied auth
+            model.</b
+          >
+          Per the SRS's own change-control rule (1.1), record this in the document's change log
+          before Milestone 01: date, "standalone app + independent staff auth + single Shopify Admin
+          API token, replacing embedded-app assumption," affected sections 6, 21.1, 21.2. Say the
+          word and I'll draft that change-log entry into the SRS file itself.
+        </p>
+      </div>
+
+      <div class="callout note">
+        <p class="tag">Resolved</p>
+        <p>
+          <b>Customer email runs through Klaviyo, not a transactional provider.</b> This changes
+          more than the adapter name. Klaviyo doesn't expose a "send this exact email now, get a
+          message ID back" API the way Postmark/SendGrid do — the Hub's job is to (1) upsert the
+          customer's Klaviyo profile, then (2) track a custom event (e.g.
+          <code>Proof Ready For Review</code>) with properties matching the Appendix B merge fields
+          (order number, review link, customer first name). A
+          <b>Klaviyo Flow already built in the Klaviyo UI</b> — not something the Hub can create via
+          API — listens for that event and sends the actual email.
+        </p>
+        <p>
+          Practical effect on Section 12.2's delivery record: "sent" now means
+          <i>the event was accepted by Klaviyo</i>, not that the email was delivered. The Hub can no
+          longer independently guarantee end-to-end delivery — that responsibility splits across the
+          API call succeeding (still tracked in the failure queue if it doesn't) and the Klaviyo
+          Flow being live and correctly configured (Just Shear's side, in Klaviyo).
+          <b>Dependency to flag now:</b> four customer-facing Klaviyo Flows need to exist before
+          Milestone 17 can be tested end-to-end — proof sent, proof revision sent, printing-stage
+          update, proof reminder (Appendix B's three templates plus the revision variant).
+        </p>
+        <p>
+          Staff-facing "emails" in Section 12.1 (proof approved notification, changes requested
+          notification, integration failure alert) are <b>not</b> going through Klaviyo — per your
+          answer, those stay in-app only via the existing <code>Notification</code> model, keeping
+          staff profiles out of Klaviyo's customer lists and analytics entirely.
+        </p>
+      </div>
+
+      <div class="callout note">
+        <p class="tag">Resolved</p>
+        <p>
+          <b>Object storage: Cloudflare R2.</b> Matches the recommendation — no egress fee on
+          proof-image-heavy traffic, S3-compatible so the storage adapter interface doesn't care
+          which provider sits behind it.
+        </p>
+        <p>
+          <b>Hosting: Render.</b> Managed Node hosting plus managed Postgres in one dashboard, with
+          a native background worker process — the simplest fit for a single-store internal tool
+          where nobody is signing up to run their own infrastructure. Cloudflare R2 is used purely
+          for storage regardless of where the app runs; no coupling between the two decisions.
+        </p>
+      </div>
+
+      <div class="callout finding">
+        <p class="tag">Gap · resolve before Milestone 15</p>
+        <p>
+          <b
+            >Partial-export tag policy is named as an open risk (Section 26) but the build can't
+            proceed without a default.</b
+          >
+          When some but not all required proof groups on an order are approved/exported, does
+          <code>proof_approved</code> / <code>exported_for_print</code> fire at the order level at
+          all?
+        </p>
+        <p>
+          <b>Recommendation:</b> default to
+          <em>all required proof groups must reach the state</em> before the order-level Shopify tag
+          fires, expose <code>partial_export_policy</code> as an <code>AppSetting</code> so Just
+          Shear can flip it to "any" later without a migration. The Kanban already has a "partially
+          approved / partially exported" state for internal visibility, so nothing is hidden — this
+          only governs what Shopify sees.
+        </p>
+      </div>
+
+      <div class="callout improve">
+        <p class="tag">Improvement</p>
+        <p>
+          <b>Bulk historical import isn't addressed.</b> Section 8.1 describes webhook-driven import
+          for new/updated orders, but doesn't say how existing open orders are backfilled on first
+          install. Iterating the REST/GraphQL API order-by-order at go-live risks rate-limit
+          throttling on a store with any real order backlog.
+        </p>
+        <p>
+          <b>Recommendation:</b> add a one-time backfill using Shopify's Bulk Operations API on
+          install, scoped to orders still open/unfulfilled, feeding the same idempotent import path
+          used by webhooks.
+        </p>
+      </div>
+
+      <div class="callout improve">
+        <p class="tag">Improvement</p>
+        <p>
+          <b>No numeric limits on uploads.</b> Section 20 requires MIME/extension/size validation
+          but sets no ceiling. Customer-uploaded artwork (print-ready files, embroidery digitising
+          files) can be large.
+        </p>
+        <p>
+          <b>Recommendation:</b> set an explicit cap (suggest 25&nbsp;MB per file for Stage One,
+          configurable via <code>AppSetting</code>) and an explicit allow-list (png, jpg, pdf, svg,
+          ai, eps; block all executables and archives by default).
+        </p>
+      </div>
+
+      <div class="callout improve">
+        <p class="tag">Improvement</p>
+        <p>
+          <b>Real-time board updates aren't specified.</b> Multiple staff will watch the same Kanban
+          board simultaneously; the SRS requires "optimistic UI with rollback" (21.3) but doesn't
+          say how one staff member's action becomes visible to another.
+        </p>
+        <p>
+          <b>Recommendation:</b> Stage One can ship with polling (10–20s) on the board view; note
+          SSE/WebSocket push as a Stage Two/Five candidate rather than building it now.
+        </p>
+      </div>
+
+      <div class="callout improve">
+        <p class="tag">Improvement</p>
+        <p>
+          <b>No accessibility target level named.</b> Section 20 says "accessible controls and
+          keyboard navigation" without a standard to test against.
+        </p>
+        <p>
+          <b>Recommendation:</b> adopt WCAG 2.1 AA as the acceptance bar for both the internal UI
+          and the customer proof page (the latter is public-facing and unauthenticated, so it
+          matters more, not less).
+        </p>
+      </div>
+
+      <div class="callout note">
+        <p class="tag">Already flagged in the SRS — noted, not re-litigated</p>
+        <p>
+          Section 26 already lists OPTIS storage format, approval legal wording, customer-account
+          proof access, file retention period, business-day/holiday rules and Starshipit rules as
+          open validation items. These are correctly deferred to real data/legal review rather than
+          guessed at — I haven't second-guessed them, only made sure the schema (Section 4 below)
+          doesn't block whichever answer Just Shear lands on.
+        </p>
+      </div>
+
+      <h3>Decisions locked in</h3>
+      <ul>
+        <li>
+          Object storage: <b>Cloudflare R2</b>, S3-compatible API, behind a provider-agnostic
+          storage adapter interface.
+        </li>
+        <li>
+          Hosting: <b>Render</b> — web process, background worker and managed Postgres together.
+        </li>
+        <li>
+          Staff auth: <b>email + password</b>, admin-created accounts, no self-signup, no Shopify
+          staff accounts involved anywhere.
+        </li>
+        <li>
+          Customer email: <b>Klaviyo</b> — profile upsert + custom event tracking, actual sending
+          owned by Flows built in the Klaviyo UI.
+        </li>
+        <li>
+          Staff-facing alerts: <b>in-app <code>Notification</code> only</b>, no email leg at all.
+        </li>
+        <li>
+          Background jobs: <b>Postgres-native queue</b> (Graphile Worker) rather than adding Redis —
+          one less moving part, and Render can run it as a second process against the same database
+          with no extra infra.
+        </li>
+        <li>
+          Framework: <b>React Router v7</b> as a standalone full-stack app (no Shopify app template,
+          no App Bridge, no Polaris) — one Just-Shear-branded UI (Section 19.1 tokens) for both
+          staff screens and the public proof pages.
+        </li>
+      </ul>
+    </section>
+
+    <section id="folders">
+      <h2>3. Recommended folder structure</h2>
+      <p>
+        Domain logic is kept independent of the route layer so business rules (proof-group state
+        transitions, override rules, reminder eligibility) are unit-testable without spinning up
+        React Router, and so Stage Two/Three logic can be added as new domain modules without
+        disturbing Stage One's.
+      </p>
+      <div class="tree">
+        just-shear-production-hub/<br />
+        ├── app/<br />
+        │&nbsp;&nbsp;├── routes/<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├──
+        _index.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// staff login</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├──
+        board._index.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// Kanban board</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├──
+        orders.$orderId.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// order drawer (tabs in Section 9.5)</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── integrations._index.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// failure queue dashboard</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├──
+        settings.*.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// staff accounts, roles, override policy, templates</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── reports.*.tsx<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├──
+        proof.$token.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// PUBLIC — same design system, no staff auth</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── proof.$token.respond.tsx<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── webhooks.orders-created.tsx<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── webhooks.orders-updated.tsx<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├──
+        webhooks.privacy-*.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment"
+          >// GDPR/mandatory privacy webhooks</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;└──
+        api.internal.*.tsx&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// fetcher actions used by board/drawer</span
+        ><br />
+        │&nbsp;&nbsp;├── components/<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── board/&nbsp;&nbsp;card.tsx, column.tsx, filters.tsx<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── order-drawer/&nbsp;&nbsp;tabs per Section 9.5<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── proof/&nbsp;&nbsp;customer-facing components only<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;└── shared/&nbsp;&nbsp;<span class="comment"
+          >// one design system — Section 19.1 tokens — used everywhere</span
+        ><br />
+        │&nbsp;&nbsp;├──
+        domain/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span
+          class="comment"
+          >// framework-agnostic business rules</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── orders/&nbsp;&nbsp;status &amp; summary calculation<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── proofs/&nbsp;&nbsp;group/version state machine<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── reminders/&nbsp;&nbsp;eligibility, cooldown, suppression<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── overrides/&nbsp;&nbsp;reason enforcement, approval routing<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── integrations/&nbsp;&nbsp;failure queue rules, backoff<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;└── reprints/<br />
+        │&nbsp;&nbsp;├── adapters/<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── shopify/&nbsp;&nbsp;GraphQL client (static Admin API token),
+        webhook verify, tag sync<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── klaviyo/&nbsp;&nbsp;profile upsert, event tracking,
+        template-property mapping<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── storage/&nbsp;&nbsp;provider interface + Cloudflare R2 impl<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;└── jobs/&nbsp;&nbsp;queue setup + job definitions<br />
+        │&nbsp;&nbsp;├── auth/<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── staff-session.server.ts&nbsp;&nbsp;<span class="comment"
+          >// email+password, cookie session</span
+        ><br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── rbac.server.ts<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;└── proof-token.server.ts&nbsp;&nbsp;<span class="comment"
+          >// signed, revocable, expiring</span
+        ><br />
+        │&nbsp;&nbsp;├── lib/<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── db.server.ts<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;├── logger.server.ts<br />
+        │&nbsp;&nbsp;│&nbsp;&nbsp;└── validation/&nbsp;&nbsp;zod schemas, one per action<br />
+        │&nbsp;&nbsp;├── styles/<br />
+        │&nbsp;&nbsp;└── root.tsx<br />
+        ├── prisma/<br />
+        │&nbsp;&nbsp;├── schema.prisma<br />
+        │&nbsp;&nbsp;├── migrations/<br />
+        │&nbsp;&nbsp;└── seed.ts&nbsp;&nbsp;<span class="comment"
+          >// Section 25.1 seed scenarios</span
+        ><br />
+        ├── tests/<br />
+        │&nbsp;&nbsp;├── unit/&nbsp;&nbsp;domain/ mirrored 1:1<br />
+        │&nbsp;&nbsp;├── integration/&nbsp;&nbsp;route + db<br />
+        │&nbsp;&nbsp;└── e2e/&nbsp;&nbsp;Playwright — staff flows + proof flow<br />
+        ├── docs/<br />
+        │&nbsp;&nbsp;├── SRS.md&nbsp;&nbsp;<span class="comment"
+          >// this spec, kept current per change-control rule</span
+        ><br />
+        │&nbsp;&nbsp;├── architecture/<br />
+        │&nbsp;&nbsp;└── runbooks/<br />
+        ├── .env.example<br />
+        ├── shopify.app.toml<br />
+        ├── package.json<br />
+        └── tsconfig.json
+      </div>
+    </section>
+
+    <section id="schema">
+      <h2>4. Database schema</h2>
+      <p>
+        Prisma schema, organised by the domain groupings in SRS Section 22. Every model in the SRS's
+        data-model table is represented; enums are pulled directly from Appendix A and the
+        reason/category lists scattered through Sections 8–17 so nothing is invented that the SRS
+        didn't already specify.
+      </p>
+
+      <h3>4.1 Shop, staff &amp; access control</h3>
+      <div class="codewrap">
+        <pre>
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Shop {
+  id             String   @id @default(cuid())
+  shopifyDomain  String   @unique
+  shopifyShopGid String   @unique
+  adminApiToken  String   // static custom-app Admin API token (encrypted at rest, never logged) — no OAuth flow, single shop
+  scopes         String
+  timezone       String   @default("Australia/Adelaide")
+  locale         String   @default("en-AU")
+  currency       String   @default("AUD")
+  installedAt    DateTime @default(now())
+  uninstalledAt  DateTime?
+
+  staffUsers          StaffUser[]
+  roles               Role[]
+  orders              ShopifyOrder[]
+  settings            AppSetting[]
+  decorationTemplates DecorationTemplate[]
+  barcodes            Barcode[]
+}
+
+model StaffUser {
+  id           String   @id @default(cuid())
+  shopId       String
+  shop         Shop     @relation(fields: [shopId], references: [id])
+  email        String
+  name         String
+  passwordHash String     // bcrypt/argon2 — no Shopify staff account involved
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  roles         StaffRole[]
+  savedViews    SavedView[]
+  notifications Notification[]
+  assignments   OrderAssignment[]
+
+  @@unique([shopId, email])
+}
+
+model Role {
+  id            String   @id @default(cuid())
+  shopId        String
+  shop          Shop     @relation(fields: [shopId], references: [id])
+  name          String   // ADMINISTRATOR | MANAGER | ARTWORK_STAFF | PRINT_STAFF | PACKING_STAFF
+  isSystemRole  Boolean  @default(true)
+
+  permissions RolePermission[]
+  staff       StaffRole[]
+
+  @@unique([shopId, name])
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  key         String @unique   // e.g. "proof.send", "override.export_without_approval"
+  description String
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model StaffRole {
+  staffUserId String
+  roleId      String
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id])
+  role        Role      @relation(fields: [roleId], references: [id])
+
+  @@id([staffUserId, roleId])
+}</pre>
+      </div>
+
+      <h3>4.2 Shopify order &amp; line data</h3>
+      <div class="codewrap">
+        <pre>
+enum OrderStatus {
+  NEW ARTWORK_REQUIRED PROOFING_IN_PROGRESS WAITING_CUSTOMER PARTIALLY_APPROVED
+  READY_FOR_EXPORT PARTIALLY_EXPORTED EXPORTED_FOR_PRINT IN_PRODUCTION
+  PARTIALLY_COMPLETE READY_TO_PACK PACKING FULFILLED ON_HOLD CANCELLED ARCHIVED
+}
+
+enum OrderProofSummary {
+  NO_PROOFS_REQUIRED PROOFS_NOT_STARTED PROOFS_IN_PROGRESS WAITING_ON_CUSTOMER
+  CHANGES_REQUESTED PARTIALLY_APPROVED ALL_REQUIRED_PROOFS_APPROVED
+  PARTIALLY_EXPORTED ALL_REQUIRED_PROOFS_EXPORTED
+}
+
+enum Priority { LOW NORMAL HIGH URGENT }
+
+enum PropertyDetectedType { TEXT SELECTION URL FILE_UPLOAD UNKNOWN }
+
+model ShopifyOrder {
+  id                 String   @id @default(cuid())
+  shopId             String
+  shop               Shop     @relation(fields: [shopId], references: [id])
+  shopifyOrderGid    String
+  orderNumber        String
+  shopifyCreatedAt   DateTime
+  customerShopifyGid String?
+  customerEmail      String?
+  customerName       String?
+  tags               String[]
+  financialStatus    String?
+  fulfillmentStatus  String?
+  isPreorder         Boolean  @default(false)
+
+  rawPayload        Json      // full Shopify payload, retention-governed
+  rawPayloadPurgeAt DateTime?
+
+  workflowStatus OrderStatus        @default(NEW)
+  proofSummary   OrderProofSummary  @default(PROOFS_NOT_STARTED)
+  priority       Priority           @default(NORMAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines               ShopifyOrderLine[]
+  proofRequirements   ProofRequirement[]
+  proofGroups         ProofGroup[]
+  assignments         OrderAssignment[]
+  dueDates            OrderDueDate[]
+  priorityHistory     OrderPriorityHistory[]
+  notes               OrderNote[]
+  activity            ActivityEvent[]
+  reminders           ProofReminder[]
+  reprints            Reprint[]
+  syncJobs            ShopifySyncJob[]
+  integrationFailures IntegrationFailure[]
+
+  @@unique([shopId, shopifyOrderGid])
+  @@index([shopId, workflowStatus])
+  @@index([shopId, priority])
+}
+
+model ShopifyOrderLine {
+  id             String  @id @default(cuid())
+  orderId        String
+  order          ShopifyOrder @relation(fields: [orderId], references: [id])
+  shopifyLineGid String
+  productTitle   String
+  variantTitle   String?
+  sku            String?
+  quantity       Int
+  imageUrl       String?
+  createdAt      DateTime @default(now())
+
+  properties       ShopifyLineProperty[]
+  artworkLinks     ArtworkOrderLineLink[]
+  proofGroupLines  ProofGroupOrderLine[]
+  proofRequirement ProofRequirement?
+
+  @@unique([orderId, shopifyLineGid])
+}
+
+model ShopifyLineProperty {
+  id            String  @id @default(cuid())
+  orderLineId   String
+  orderLine     ShopifyOrderLine @relation(fields: [orderLineId], references: [id])
+  name          String
+  value         String
+  detectedType  PropertyDetectedType @default(TEXT)
+  parsedAssetId String?    // set once linked to a CustomerArtworkAsset
+  createdAt     DateTime @default(now())
+}</pre>
+      </div>
+
+      <h3>4.3 Artwork, proof requirement &amp; proof groups</h3>
+      <div class="codewrap">
+        <pre>
+enum ProofRequirementValue { REQUIRED NOT_REQUIRED PARTIALLY_REQUIRED UNDETERMINED }
+
+enum NoProofReason {
+  UNPRINTED_PRODUCT REPEAT_JOB_PREVIOUS_ARTWORK APPROVED_STANDARD_LOGO
+  CUSTOMER_SUPPLIED_PRODUCTION_READY INTERNAL_STAFF_ORDER OTHER
+}
+
+enum DecorationMethod { EMBROIDERY DIGITAL_PRINT_DTF SCREEN_PRINT UNPRINTED OTHER }
+
+enum ProofGroupStatus {
+  NOT_STARTED DRAFT_IN_PROGRESS READY_TO_SEND SENT VIEWED CHANGES_REQUESTED
+  APPROVED NO_PROOF_REQUIRED READY_FOR_EXPORT EXPORTED_FOR_PRINT CANCELLED
+}
+
+model CustomerArtworkAsset {
+  id                 String   @id @default(cuid())
+  shopId             String
+  shop               Shop     @relation(fields: [shopId], references: [id])
+  originalFilename   String?
+  storageKey         String
+  mimeType           String
+  sizeBytes          Int
+  uploadedByCustomer Boolean  @default(true)
+  isReusableArtwork  Boolean  @default(false)  // e.g. approved standard logo
+  createdAt          DateTime @default(now())
+
+  links ArtworkOrderLineLink[]
+}
+
+model ArtworkOrderLineLink {
+  id                    String   @id @default(cuid())
+  assetId               String
+  asset                 CustomerArtworkAsset @relation(fields: [assetId], references: [id])
+  orderLineId           String
+  orderLine             ShopifyOrderLine     @relation(fields: [orderLineId], references: [id])
+  isManualReassignment  Boolean  @default(false)
+  reassignmentReason    String?
+  createdByStaffId      String?
+  createdAt             DateTime @default(now())
+
+  @@unique([assetId, orderLineId])
+}
+
+// Assessable at order, order-line OR proof-group scope — exactly one FK set.
+model ProofRequirement {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          ShopifyOrder @relation(fields: [orderId], references: [id])
+  orderLineId    String?  @unique
+  orderLine      ShopifyOrderLine? @relation(fields: [orderLineId], references: [id])
+  proofGroupId   String?  @unique
+  proofGroup     ProofGroup? @relation(fields: [proofGroupId], references: [id])
+
+  value            ProofRequirementValue
+  noProofReason    NoProofReason?
+  reasonNote       String?
+  decidedByStaffId String?
+  decidedAt        DateTime?
+  createdAt        DateTime @default(now())
+}
+
+model ProofGroup {
+  id                  String   @id @default(cuid())
+  orderId             String
+  order               ShopifyOrder @relation(fields: [orderId], references: [id])
+  decorationMethod    DecorationMethod
+  placement           String
+  artworkContextNote  String?
+  approximateWidthMm  Int?
+  approximateHeightMm Int?
+
+  status             ProofGroupStatus @default(NOT_STARTED)
+  requiresApproval   Boolean @default(true)   // false once NO_PROOF_REQUIRED
+  noProofReason      NoProofReason?
+
+  assignedStaffId String?
+  dueDate         DateTime?
+  priority        Priority @default(NORMAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderLines        ProofGroupOrderLine[]
+  versions          ProofVersion[]
+  productionExports ProductionExport[]
+  reprints          Reprint[]
+  proofRequirement  ProofRequirement?
+
+  @@index([orderId, status])
+}
+
+model ProofGroupOrderLine {
+  id           String @id @default(cuid())
+  proofGroupId String
+  proofGroup   ProofGroup       @relation(fields: [proofGroupId], references: [id])
+  orderLineId  String
+  orderLine    ShopifyOrderLine @relation(fields: [orderLineId], references: [id])
+  quantity     Int
+
+  @@unique([proofGroupId, orderLineId])
+}</pre>
+      </div>
+
+      <h3>4.4 Proof versions, delivery &amp; customer response</h3>
+      <div class="codewrap">
+        <pre>
+enum ProofVersionStatus {
+  DRAFT READY_TO_SEND SENT VIEWED APPROVED CHANGES_REQUESTED SUPERSEDED CANCELLED
+}
+
+enum ResponseType { APPROVED CHANGES_REQUESTED }
+
+enum ChangeRequestCategory { SPELLING ARTWORK COLOUR SIZE PLACEMENT PRODUCT_ASSIGNMENT OTHER }
+
+model ProofVersion {
+  id             String   @id @default(cuid())
+  proofGroupId   String
+  proofGroup     ProofGroup @relation(fields: [proofGroupId], references: [id])
+  versionNumber  Int
+  status         ProofVersionStatus @default(DRAFT)
+
+  customerMessage String?
+  internalNote    String?
+  createdByStaffId String
+
+  secureTokenHash String?   @unique
+  tokenExpiresAt  DateTime?
+  tokenRevokedAt  DateTime?
+
+  sentAt        DateTime?
+  viewedAt      DateTime?
+  respondedAt   DateTime?
+  approvedAt    DateTime?
+  supersededAt  DateTime?
+  createdAt     DateTime @default(now())
+
+  assets            ProofAsset[]
+  responses         CustomerProofResponse[]
+  productionExports ProductionExport[]
+  reminders         ProofReminder[]
+
+  @@unique([proofGroupId, versionNumber])
+}
+
+model ProofAsset {
+  id             String  @id @default(cuid())
+  proofVersionId String
+  proofVersion   ProofVersion @relation(fields: [proofVersionId], references: [id])
+  storageKey     String
+  isPrimary      Boolean @default(false)
+  sortOrder      Int     @default(0)
+  createdAt      DateTime @default(now())
+}
+
+model CustomerProofResponse {
+  id               String   @id @default(cuid())
+  proofVersionId   String
+  proofVersion     ProofVersion @relation(fields: [proofVersionId], references: [id])
+  responseType     ResponseType
+  customerNote     String?
+  changeCategories ChangeRequestCategory[]
+  respondedAt      DateTime @default(now())
+  requestIp        String?
+  requestUserAgent String?
+  idempotencyKey   String   @unique   // prevents duplicate approval, Section 24.1
+
+  assets CustomerResponseAsset[]
+}
+
+model CustomerResponseAsset {
+  id         String   @id @default(cuid())
+  responseId String
+  response   CustomerProofResponse @relation(fields: [responseId], references: [id])
+  storageKey String
+  createdAt  DateTime @default(now())
+}
+
+model ProductionExport {
+  id                       String   @id @default(cuid())
+  proofGroupId             String
+  proofGroup               ProofGroup   @relation(fields: [proofGroupId], references: [id])
+  proofVersionId           String
+  proofVersion             ProofVersion @relation(fields: [proofVersionId], references: [id])
+  exportedByStaffId        String
+  destination              String?
+  productionFileStorageKey String?
+  internalNote             String?
+  isOverride               Boolean  @default(false)
+  overrideReason           String?
+  exportedAt               DateTime @default(now())
+}</pre>
+      </div>
+
+      <h3>4.5 Assignment, due dates, priority &amp; overrides</h3>
+      <div class="codewrap">
+        <pre>
+enum AssignmentRole { OWNER ARTWORK PACKING PRODUCTION GENERAL }
+enum DueDateType { INTERNAL CUSTOMER_PROMISED PRODUCTION DISPATCH }
+enum DueDateSource { AUTOMATIC MANUAL_OVERRIDE SHOPIFY }
+
+enum OverrideType {
+  SKIP_WORKFLOW_STEP EXPORT_WITHOUT_APPROVAL REOPEN_APPROVED_PROOF
+  INVALIDATE_APPROVAL MARK_NO_PROOF_REQUIRED SUPPRESS_REMINDER
+  CHANGE_DUE_DATE OVERRIDE_FREIGHT_RECOMMENDATION
+  RESOLVE_IGNORE_INTEGRATION_FAILURE BYPASS_BARCODE_VALIDATION
+}
+
+model OrderAssignment {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         ShopifyOrder @relation(fields: [orderId], references: [id])
+  staffUserId   String
+  staffUser     StaffUser    @relation(fields: [staffUserId], references: [id])
+  role          AssignmentRole
+  assignedAt    DateTime @default(now())
+  unassignedAt  DateTime?
+}
+
+model OrderDueDate {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          ShopifyOrder @relation(fields: [orderId], references: [id])
+  type           DueDateType
+  dueDate        DateTime
+  source         DueDateSource
+  setByStaffId   String?
+  overrideReason String?
+  createdAt      DateTime @default(now())
+
+  @@unique([orderId, type])
+}
+
+model OrderPriorityHistory {
+  id           String   @id @default(cuid())
+  orderId      String
+  order        ShopifyOrder @relation(fields: [orderId], references: [id])
+  priority     Priority
+  reason       String?
+  setByStaffId String
+  createdAt    DateTime @default(now())
+}
+
+model ManualOverride {
+  id                      String   @id @default(cuid())
+  shopId                  String
+  overrideType            OverrideType
+  relatedEntityType       String
+  relatedEntityId         String
+  previousValue           Json?
+  newValue                Json?
+  reason                  String
+  staffUserId             String
+  requiresManagerApproval Boolean  @default(false)
+  approvedByStaffId       String?
+  approvedAt              DateTime?
+  createdAt               DateTime @default(now())
+
+  attachments ManualOverrideAttachment[]
+}
+
+model ManualOverrideAttachment {
+  id          String @id @default(cuid())
+  overrideId  String
+  override    ManualOverride @relation(fields: [overrideId], references: [id])
+  storageKey  String
+}</pre>
+      </div>
+
+      <h3>4.6 Notes, customer communication, activity &amp; notifications</h3>
+      <div class="codewrap">
+        <pre>
+enum NoteVisibility { INTERNAL CUSTOMER_VISIBLE }
+
+// Customer-facing only — staff alerts (proof approved, changes requested,
+// integration failure) are NOT sent as email; they're Notification rows only.
+enum KlaviyoEventType {
+  PROOF_SENT PROOF_REVISION_SENT EXPORTED_FOR_PRINT PROOF_REMINDER
+}
+
+// "SENT" means Klaviyo accepted the event, not that the resulting Flow email
+// was delivered — Klaviyo owns the send once the event lands. See Section 2.
+enum EmailStatus { QUEUED SENT FAILED }
+enum ActorType { STAFF CUSTOMER SYSTEM }
+
+model OrderNote {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          ShopifyOrder @relation(fields: [orderId], references: [id])
+  authorStaffId  String
+  body           String
+  visibility     NoteVisibility
+  createdAt      DateTime @default(now())
+}
+
+model ProofReminder {
+  id                  String   @id @default(cuid())
+  proofVersionId      String
+  proofVersion        ProofVersion @relation(fields: [proofVersionId], references: [id])
+  scheduledFor        DateTime
+  sentAt              DateTime?
+  suppressed          Boolean  @default(false)
+  suppressedReason    String?
+  suppressedByStaffId String?
+  attemptNumber       Int      @default(1)
+  klaviyoDispatchId   String?
+  createdAt           DateTime @default(now())
+}
+
+// One row per customer-facing Klaviyo dispatch. Replaces a generic
+// "EmailMessage" — there is no provider message ID to store because Klaviyo's
+// Flow (built in the Klaviyo UI, not via API) owns the actual send.
+model KlaviyoDispatch {
+  id                String   @id @default(cuid())
+  shopId            String
+  eventType         KlaviyoEventType
+  klaviyoMetricName String   // the custom event name tracked, e.g. "Proof Ready For Review"
+  recipientEmail    String
+  orderId           String?
+  order             ShopifyOrder? @relation(fields: [orderId], references: [id])
+  proofGroupId      String?
+  eventProperties   Json     // merge fields sent with the event: order_number, review_proof_button, etc.
+  status            EmailStatus @default(QUEUED)
+  klaviyoEventId    String?  // ID returned by the Klaviyo track-event call, if any
+  queuedAt          DateTime @default(now())
+  sentAt            DateTime?
+  failedAt          DateTime?
+  retryCount        Int      @default(0)
+  idempotencyKey    String   @unique
+}
+
+model ActivityEvent {
+  id             String   @id @default(cuid())
+  shopId         String
+  orderId        String?
+  order          ShopifyOrder? @relation(fields: [orderId], references: [id])
+  entityType     String
+  entityId       String
+  eventType      String
+  summary        String
+  metadata       Json?
+  actorStaffId   String?
+  actorType      ActorType
+  createdAt      DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model Notification {
+  id                String   @id @default(cuid())
+  staffUserId       String
+  staffUser         StaffUser @relation(fields: [staffUserId], references: [id])
+  type              String
+  title             String
+  body              String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  readAt            DateTime?
+  createdAt         DateTime @default(now())
+}
+
+model SavedView {
+  id          String   @id @default(cuid())
+  staffUserId String
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id])
+  name        String
+  isDefault   Boolean  @default(false)
+  filters     Json
+  sortOrder   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}</pre>
+      </div>
+
+      <h3>4.7 Shopify sync &amp; the integration failure queue</h3>
+      <div class="codewrap">
+        <pre>
+enum SyncDirection { INBOUND OUTBOUND }
+enum JobStatus { PENDING RUNNING SUCCESS FAILED }
+
+enum IntegrationType {
+  SHOPIFY_ORDER_IMPORT SHOPIFY_TAG_UPDATE WEBHOOK EMAIL FILE_STORAGE
+  OPTIS_PARSING PROOF_LINK STARSHIPIT
+}
+
+enum Severity { LOW MEDIUM HIGH CRITICAL }
+
+enum IntegrationFailureStatus { NEW RETRYING NEEDS_ATTENTION ASSIGNED RESOLVED IGNORED }
+
+model ShopifySyncJob {
+  id             String   @id @default(cuid())
+  shopId         String
+  orderId        String?
+  order          ShopifyOrder? @relation(fields: [orderId], references: [id])
+  direction      SyncDirection
+  jobType        String
+  payload        Json?
+  status         JobStatus @default(PENDING)
+  idempotencyKey String    @unique
+  attempts       Int       @default(0)
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+}
+
+model IntegrationFailure {
+  id                    String   @id @default(cuid())
+  shopId                String
+  integration           IntegrationType
+  action                String
+  relatedOrderId        String?
+  order                 ShopifyOrder? @relation(fields: [relatedOrderId], references: [id])
+  relatedProofGroupId   String?
+  relatedEmailMessageId String?
+  relatedJobId          String?
+
+  summary         String    // user-friendly
+  technicalDetail String?   // sanitised — no secrets, ever
+
+  severity        Severity
+  status          IntegrationFailureStatus @default(NEW)
+  assignedStaffId String?
+
+  attemptCount    Int       @default(0)
+  firstFailureAt  DateTime  @default(now())
+  latestFailureAt DateTime  @default(now())
+  nextRetryAt     DateTime?
+
+  resolutionNote     String?
+  resolvedByStaffId  String?
+  resolvedAt         DateTime?
+
+  attempts IntegrationAttempt[]
+}
+
+model IntegrationAttempt {
+  id           String   @id @default(cuid())
+  failureId    String
+  failure      IntegrationFailure @relation(fields: [failureId], references: [id])
+  attemptedAt  DateTime @default(now())
+  succeeded    Boolean
+  errorSummary String?
+}</pre>
+      </div>
+
+      <h3>4.8 Reprints, barcodes &amp; forward-compatible warehouse fields</h3>
+      <div class="codewrap">
+        <pre>
+enum ReprintReasonCategory {
+  PLACEMENT PRINT_QUALITY EMBROIDERY WRONG_GARMENT WRONG_SIZE WRONG_COLOUR
+  PRODUCTION_DAMAGE PACKING_DAMAGE ARTWORK_ERROR MACHINE_FAILURE OTHER
+}
+
+enum ReprintStatus {
+  REPORTED REVIEW_REQUIRED APPROVED WAITING_STOCK READY_FOR_PRODUCTION
+  IN_PRODUCTION QUALITY_CHECK COMPLETE CANCELLED
+}
+
+enum BarcodeType {
+  VARIANT SKU INTERNAL_PRODUCT BIN ORDER PICK_LIST
+  PRODUCTION_BATCH PACKING_STATION PARCEL REPRINT
+}
+
+enum ScanResult { MATCH MISMATCH OVERRIDDEN UNKNOWN }
+
+model Reprint {
+  id                     String   @id @default(cuid())
+  orderId                String
+  order                  ShopifyOrder @relation(fields: [orderId], references: [id])
+  orderLineId            String?
+  proofGroupId           String?
+  proofGroup             ProofGroup? @relation(fields: [proofGroupId], references: [id])
+  approvedProofVersionId String?
+
+  quantity          Int
+  reasonCategory    ReprintReasonCategory
+  explanation       String
+  responsibleStage  String?
+  stockImpact       String?
+
+  status    ReprintStatus @default(REPORTED)
+  priority  Priority      @default(NORMAL)
+  dueDate   DateTime?
+  ownerStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets ReprintAsset[]
+}
+
+model ReprintAsset {
+  id         String  @id @default(cuid())
+  reprintId  String
+  reprint    Reprint @relation(fields: [reprintId], references: [id])
+  storageKey String
+  createdAt  DateTime @default(now())
+}
+
+model Barcode {
+  id                String   @id @default(cuid())
+  shopId            String
+  shop              Shop     @relation(fields: [shopId], references: [id])
+  type              BarcodeType
+  value             String
+  relatedEntityType String?
+  relatedEntityId   String?
+  createdAt         DateTime @default(now())
+
+  @@unique([shopId, type, value])
+}
+
+// Not exposed in Stage One UI — table exists so Stage Two scanning
+// doesn't require a schema migration mid-flight.
+model ScanEvent {
+  id                String   @id @default(cuid())
+  shopId            String
+  scannedValue      String
+  barcodeType       BarcodeType
+  expectedValue     String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  staffUserId       String?
+  station           String?
+  result            ScanResult
+  overrideReason    String?
+  createdAt         DateTime @default(now())
+}</pre>
+      </div>
+
+      <h3>4.9 Configuration</h3>
+      <div class="codewrap">
+        <pre>
+model AppSetting {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([shopId, key])
+}
+
+model DecorationTemplate {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  method    DecorationMethod
+  wording   String
+  isDefault Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@unique([shopId, method])
+}</pre>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>5. Application architecture</h2>
+
+      <div class="mermaid">
+        graph TB subgraph Staff["Internal staff (standalone app, email+password login)"]
+        Board["Kanban board + order drawer"] Settings["Settings, reports, integration queue"] end
+        subgraph Public["Public, unauthenticated"] ProofPage["Customer proof page — token URL"] end
+        Staff -- "cookie session" --> API["Application API<br />(React Router v7 server routes)"]
+        Public -- "signed proof token" --> API API --> Domain["Domain layer<br />proof state machine
+        · overrides · reminders"] Domain --> DB[("PostgreSQL<br />Prisma · on Render")] Domain -->
+        Jobs["Job queue<br />(Graphile Worker, on Render)"] Jobs --> ShopifyAdapter["Shopify
+        adapter<br />single Admin API token<br />GraphQL + webhooks + tags"] Jobs -->
+        KlaviyoAdapter["Klaviyo adapter<br />profile upsert + event tracking"] Jobs -->
+        StorageAdapter["Storage adapter<br />Cloudflare R2, signed URLs"] ShopifyAdapter <-->
+        Shopify[("Shopify<br />orders · customers · fulfilment")] KlaviyoAdapter -->
+        Klaviyo[("Klaviyo<br />Flows send the actual email")] ShopifyAdapter -- "on failure" -->
+        Failures["IntegrationFailure queue"] KlaviyoAdapter -- "on failure" --> Failures
+        StorageAdapter -- "on failure" --> Failures Failures --> Settings Shopify -- "webhooks" -->
+        API
+      </div>
+
+      <h3>5.1 Components</h3>
+      <table>
+        <tr>
+          <th>Component</th>
+          <th>Responsibility</th>
+          <th>Notes</th>
+        </tr>
+        <tr>
+          <td>Staff web app</td>
+          <td>Internal UI: board, drawer, settings, reports</td>
+          <td>React Router v7, standalone (not embedded), email+password session auth</td>
+        </tr>
+        <tr>
+          <td>Public proof pages</td>
+          <td>Customer-facing proof review &amp; response</td>
+          <td>
+            Same server, separate route tree, same design system (Section 19.1 tokens), rate-limited
+          </td>
+        </tr>
+        <tr>
+          <td>Application API</td>
+          <td>Business rules, permission checks, orchestration</td>
+          <td>Server routes/actions — every mutation goes through the RBAC layer first</td>
+        </tr>
+        <tr>
+          <td>Domain layer</td>
+          <td>
+            Proof-group/version state machine, override reason enforcement, reminder eligibility,
+            proof-summary recalculation
+          </td>
+          <td>Framework-agnostic, unit tested in isolation</td>
+        </tr>
+        <tr>
+          <td>PostgreSQL + Prisma</td>
+          <td>Operational records, workflow, audit</td>
+          <td>Managed Postgres on Render; migrations committed to source control per 21.3</td>
+        </tr>
+        <tr>
+          <td>Object storage</td>
+          <td>Proofs, artwork, uploads, production files</td>
+          <td>
+            Cloudflare R2 behind a storage adapter interface; signed upload/download URLs only
+          </td>
+        </tr>
+        <tr>
+          <td>Job queue</td>
+          <td>Klaviyo dispatch, Shopify sync, reminder sweeps, retries</td>
+          <td>Graphile Worker (Postgres-native) as a second Render process — no Redis</td>
+        </tr>
+        <tr>
+          <td>Shopify adapter</td>
+          <td>Admin API (GraphQL), webhook verification, tag sync</td>
+          <td>
+            Single static custom-app token, not OAuth; idempotent; internal state persists even when
+            this adapter fails
+          </td>
+        </tr>
+        <tr>
+          <td>Klaviyo adapter</td>
+          <td>Profile upsert + custom event tracking for customer-facing sends</td>
+          <td>
+            Does not compose or send email itself — Klaviyo Flows (built in Klaviyo UI) own that;
+            staff alerts never go through this adapter
+          </td>
+        </tr>
+        <tr>
+          <td>Integration monitor</td>
+          <td>Failure capture, backoff, escalation, resolution</td>
+          <td>Feeds the header's unresolved-issues indicator (Section 14)</td>
+        </tr>
+      </table>
+
+      <h3>5.2 Cross-cutting rules that shape the code, not just the schema</h3>
+      <ul>
+        <li>
+          <b>Every mutation is server-side permission-checked</b> — no client-side-only role gating.
+          The RBAC layer (Role/Permission/StaffRole) sits in front of every domain action, not just
+          route-level middleware.
+        </li>
+        <li>
+          <b>Every external call is wrapped so failure never blocks the internal write.</b> The
+          order/proof-group/version state change commits first; the Shopify tag sync, email send,
+          etc. are queued jobs that write to <code>IntegrationFailure</code> on exhaustion rather
+          than rolling back the internal change.
+        </li>
+        <li>
+          <b>Idempotency keys are mandatory</b> on webhook processing, customer proof responses,
+          outbound sync jobs and email jobs (Section 23.3) — enforced at the schema level via
+          <code>@unique</code> constraints, not just application logic.
+        </li>
+        <li>
+          <b>Nothing is overwritten.</b> Proof versions are append-only and superseded, not edited
+          in place; approvals, customer uploads and production exports are immutable once written.
+        </li>
+      </ul>
+    </section>
+
+    <section id="milestones">
+      <h2>6. Milestone plan</h2>
+      <p>
+        The SRS's own 23-milestone plan (Section 27) is sound and I haven't renumbered it —
+        reordering here would just create drift between this document and the source of truth.
+        Grouped into four phases with the exit criteria that actually gate moving on:
+      </p>
+
+      <div class="phase-card">
+        <h4><span class="phase-label">Phase 1</span> Foundation — Milestones 01–06</h4>
+        <p>
+          Repo, database, staff auth (email+password) &amp; roles, single Shopify Admin API
+          connection, order import, raw-data inspector, application shell. <b>Exit criteria:</b> a
+          real Shopify order lands in Postgres via webhook, its OPTIS-style line properties are
+          visible in the raw inspector, and a staff member can log in with their own Hub account and
+          see the empty shell with correct role-based nav. Nothing about proofing is built yet —
+          this phase is entirely about making Milestone 07 onward safe to build on real data instead
+          of guesses.
+        </p>
+      </div>
+
+      <div class="phase-card">
+        <h4><span class="phase-label">Phase 2</span> Core proofing loop — Milestones 07–16</h4>
+        <p>
+          Kanban board, order-line assets, proof groups, proof versions, secure file storage,
+          customer proof page, approval/changes, Klaviyo integration, tag sync, exported-for-print.
+          <b>Exit criteria:</b> a staff member can take a real order from "New" through proof
+          creation, customer approval (or revision loop), to exported-for-print, with Shopify tags
+          reflecting each step, Klaviyo events firing correctly, and every version retained. This
+          phase is the product — everything before it is plumbing, everything after it is safety
+          net. <b>Blocked on:</b> the four customer-facing Klaviyo Flows (Section 2) need to exist
+          in Klaviyo before this phase's proof-sent/reminder/printing-update milestones can be
+          tested end-to-end — worth starting those in parallel with Milestone 07–10, not waiting
+          until Milestone 14.
+        </p>
+      </div>
+
+      <div class="phase-card">
+        <h4>
+          <span class="phase-label">Phase 3</span> Reliability &amp; operational control —
+          Milestones 17–21
+        </h4>
+        <p>
+          Reminders, overrides &amp; audit, integration issue queue, no-proof-required handling,
+          reprint/barcode data foundations. <b>Exit criteria:</b> nothing can be bypassed without a
+          logged reason, nothing fails silently, and the reprint/barcode tables exist (unused) so
+          Stage Two doesn't need a migration.
+        </p>
+      </div>
+
+      <div class="phase-card" style="border-left: 3px solid var(--error);">
+        <h4>
+          <span class="phase-label" style="color: var(--error);">Proposed — not in the original SRS 23</span>
+          Privacy, Retention and Shopify Data Erasure
+        </h4>
+        <p>
+          Added 27 July 2026, arising from Milestone 04 (Shopify order import) — see
+          <a href="../decisions/0002-deferred-shopify-privacy-erasure.md">ADR-0002</a>.
+          <b>Status: BLOCKING BEFORE PRODUCTION</b> — this application must not be approved for live
+          production use until this milestone is designed, implemented and tested. Slotted here,
+          before Phase 4's hardening/deployment work, because production sign-off depends on it.
+        </p>
+        <p>Must eventually cover:</p>
+        <ul>
+          <li><code>customers/data_request</code> — full fulfilment workflow, not just the current manual-follow-up acknowledgement</li>
+          <li><code>customers/redact</code> — extend beyond <code>ShopifyOrder</code> to every model in ADR-0002's inventory that may carry that customer's data</li>
+          <li><code>shop/redact</code> — the currently-missing full automated erasure workflow</li>
+          <li>Retention periods for every data category (orders, uploads, raw payloads, activity/audit history, integration logs, failed jobs)</li>
+          <li>Deletion vs. anonymisation rules, decided per model — not a single blanket rule</li>
+          <li>Object-storage files (once Milestone 11 lands and files actually live in R2, not just referenced)</li>
+          <li>Raw Shopify payloads (<code>ShopifyOrder.rawPayload</code>, currently retained indefinitely — <code>rawPayloadPurgeAt</code> exists but nothing populates or acts on it)</li>
+          <li>Audit-history treatment — reconciling "erase customer data" against "never overwrite prior proofs, approvals, customer responses" (SRS Appendix C)</li>
+          <li>Integration logs and failed jobs (<code>IntegrationFailure</code>, <code>IntegrationAttempt</code>, <code>ShopifySyncJob</code>) that may reference customer identifiers in free-text fields</li>
+          <li>Legal and operational retention exceptions (e.g. records a business must keep despite an erasure request)</li>
+          <li>Idempotency and retry handling for the erasure workflows themselves</li>
+          <li>Testing against a realistic seeded shop — not just unit tests of individual redaction functions</li>
+        </ul>
+      </div>
+
+      <div class="phase-card">
+        <h4><span class="phase-label">Phase 4</span> Hardening &amp; launch — Milestones 22–23</h4>
+        <p>
+          Full integration/security/accessibility/performance testing, then production deployment,
+          monitoring, backups and rollback. <b>Exit criteria:</b> Appendix D's Stage One Definition
+          of Done checklist passes in full, including the security and permission test suite from
+          Section 24.1.
+        </p>
+      </div>
+
+      <p>
+        One process addition worth making explicit: per the SRS's own working rule ("write a small
+        implementation plan before changing code," 27.1), each milestone should get a one-page
+        plan-and-confirm step before implementation starts — this review is that step for the
+        project as a whole; the same pattern should repeat per milestone.
+      </p>
+    </section>
+
+    <section id="decisions">
+      <h2>7. Decisions needed before Milestone 01</h2>
+      <p>
+        <span class="pill ok">Resolved</span> Staff auth (email+password, no Shopify logins) ·
+        Hosting (Render) · Object storage (Cloudflare R2) · Customer email platform (Klaviyo).
+      </p>
+      <ul class="decision-list">
+        <li>
+          <span class="q"
+            >Partial-export tag policy: does <code>proof_approved</code>/<code
+              >exported_for_print</code
+            >
+            require ALL required proof groups, or ANY?</span
+          ><br /><span class="rec"
+            >Assumed: <b>ALL</b>, configurable per shop via AppSetting. This is the SRS's own
+            flagged risk (Section 26) — needs Just Shear's call before Milestone 15.</span
+          >
+        </li>
+        <li>
+          <span class="q"
+            >The four customer-facing Klaviyo Flows (proof sent, proof revision, printing-stage
+            update, reminder) don't exist yet — who builds them, and on what timeline?</span
+          ><br /><span class="rec"
+            >These live in the Klaviyo UI, not in this codebase. Worth starting alongside Milestone
+            07–10 rather than treating it as a Milestone 14 blocker discovered late. Appendix B's
+            wording is a ready starting point for the email copy.</span
+          >
+        </li>
+        <li>
+          <span class="q"
+            >Should the "no Shopify logins" and "Klaviyo for customer email" decisions be written
+            into the SRS's own change log (Section 1.1 requires this for significant changes)?</span
+          ><br /><span class="rec"
+            >Recommended: yes, before Milestone 01 — I can draft that change-log entry directly into
+            the SRS docx if you'd like.</span
+          >
+        </li>
+      </ul>
+    </section>
+
+    <footer>
+      Prepared from Just_Shear_Production_Hub_SRS.docx v1.0. No repository, code or dependencies
+      have been created — this document is the review step requested before Milestone 01 begins.
+    </footer>
+  </main>
+</div>
