@@ -10,6 +10,8 @@ const REQUIRED_KEYS = [
   "R2_SECRET_ACCESS_KEY",
   "R2_BUCKET",
   "KLAVIYO_API_KEY",
+  "STARSHIPIT_API_KEY",
+  "STARSHIPIT_SUBSCRIPTION_KEY",
 ] as const;
 
 function validEnv() {
@@ -23,6 +25,8 @@ function validEnv() {
     R2_SECRET_ACCESS_KEY: "test-secret",
     R2_BUCKET: "test-bucket",
     KLAVIYO_API_KEY: "pk_test",
+    STARSHIPIT_API_KEY: "test-starshipit-key",
+    STARSHIPIT_SUBSCRIPTION_KEY: "test-starshipit-subscription-key",
     SESSION_SECRET: "a".repeat(32),
   };
 }
@@ -58,6 +62,37 @@ describe("env.server", () => {
 
     const { env } = await import("~/lib/env.server");
     expect(env.SHOPIFY_API_VERSION).toBe("2026-07");
+  });
+
+  it("defaults PROOF_TOKEN_EXPIRY_DAYS and PROOF_REMINDER_DELAY_DAYS when not set", async () => {
+    Object.assign(process.env, validEnv());
+    Reflect.deleteProperty(process.env, "PROOF_TOKEN_EXPIRY_DAYS");
+    Reflect.deleteProperty(process.env, "PROOF_REMINDER_DELAY_DAYS");
+
+    const { env } = await import("~/lib/env.server");
+    expect(env.PROOF_TOKEN_EXPIRY_DAYS).toBe(14);
+    expect(env.PROOF_REMINDER_DELAY_DAYS).toBe(3);
+  });
+
+  it("honours an explicit PROOF_TOKEN_EXPIRY_DAYS override", async () => {
+    Object.assign(process.env, validEnv(), { PROOF_TOKEN_EXPIRY_DAYS: "30" });
+
+    const { env } = await import("~/lib/env.server");
+    expect(env.PROOF_TOKEN_EXPIRY_DAYS).toBe(30);
+  });
+
+  it("defaults APP_BASE_URL to the local dev server when not set", async () => {
+    Object.assign(process.env, validEnv());
+    Reflect.deleteProperty(process.env, "APP_BASE_URL");
+
+    const { env } = await import("~/lib/env.server");
+    expect(env.APP_BASE_URL).toBe("http://localhost:5173");
+  });
+
+  it("throws when APP_BASE_URL is set but not a valid URL", async () => {
+    Object.assign(process.env, validEnv(), { APP_BASE_URL: "not-a-url" });
+
+    await expect(import("~/lib/env.server")).rejects.toThrow(/APP_BASE_URL/);
   });
 
   it("throws when SESSION_SECRET is shorter than 32 characters", async () => {

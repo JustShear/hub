@@ -32,7 +32,7 @@ export const SORT_FIELD_LABELS: Record<SortField, string> = {
   order_number: "Order number",
 };
 
-export const BOARD_VIEWS = ["board", "on_hold", "cancelled", "archived"] as const;
+export const BOARD_VIEWS = ["board", "on_hold", "cancelled", "archived", "fulfilled"] as const;
 export type BoardView = (typeof BOARD_VIEWS)[number];
 
 export const ASSIGNMENT_FILTERS = ["any", "me", "unassigned", "staff"] as const;
@@ -117,6 +117,8 @@ export function parseBoardSearchParams(searchParams: URLSearchParams): {
   filters: BoardFilters;
   sort: BoardSort;
   view: BoardView;
+  /** undefined means "show every column" — the default, and the only state that omits the URL param. */
+  visibleColumns: string[] | undefined;
 } {
   const rawView = searchParams.get("view");
   const view = (BOARD_VIEWS as readonly string[]).includes(rawView ?? "")
@@ -145,16 +147,26 @@ export function parseBoardSearchParams(searchParams: URLSearchParams): {
     search: searchParams.get("q") ?? "",
   });
 
-  return { filters, sort, view };
+  const rawColumns = parseListParam(searchParams.get("columns"));
+  const visibleColumns = rawColumns.length > 0 ? rawColumns : undefined;
+
+  return { filters, sort, view, visibleColumns };
 }
 
 // Inverse of parseBoardSearchParams — used to build shareable/saved-view URLs.
+// visibleColumns is omitted whenever undefined (the default: every column
+// shown) — only a genuine subset gets written, matching every other field's
+// "don't set unless non-default" convention in this function.
 export function boardFiltersToSearchParams(
   filters: BoardFilters,
   sort: BoardSort,
   view: BoardView,
+  visibleColumns?: string[],
 ): URLSearchParams {
   const params = new URLSearchParams();
+  if (visibleColumns && visibleColumns.length > 0) {
+    params.set("columns", visibleColumns.join(","));
+  }
   if (view !== "board") params.set("view", view);
   if (sort.field !== "urgency_default") params.set("sort", sort.field);
   if (filters.priority.length) params.set("priority", filters.priority.join(","));

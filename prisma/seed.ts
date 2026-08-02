@@ -43,9 +43,10 @@ const PERMISSIONS = [
     description: "Add, change or clear an order's internal due dates",
   },
   // Superseded for group/version CRUD by the more granular proof_groups.*/
-  // proof_versions.* keys below (Milestone 08) — kept, unused by any check
-  // going forward, since proof.send/proof.export still gate the later
-  // customer-sending and export-for-print milestones.
+  // proof_versions.* keys (Milestone 08), for customer-sending by
+  // proof_requests.* (Milestone 09), and for export-for-print by
+  // production_artwork.*/production_exports.* (Milestone 10) — kept, unused
+  // by any check going forward.
   { key: "proof.create", description: "Create proof groups and versions" },
   { key: "proof.send", description: "Send a proof to a customer" },
   { key: "proof.export", description: "Mark an approved proof exported for print" },
@@ -93,6 +94,193 @@ const PERMISSIONS = [
     key: "raw_data.view",
     description: "View raw Shopify payloads and line properties (developer-only inspector)",
   },
+  // Milestone 09 — customer proof requests. The customer portal itself is
+  // gated by possession of a secure token, not by any of these; these only
+  // gate the internal staff-facing send/view/resend/revoke/override actions.
+  {
+    key: "proof_requests.create",
+    description: "Send a proof request (one or more ready proof groups) to a customer",
+  },
+  { key: "proof_requests.view", description: "View sent proof requests and their status" },
+  {
+    key: "proof_requests.resend",
+    description: "Resend an existing proof request's email using the same link",
+  },
+  {
+    key: "proof_requests.revoke",
+    description: "Revoke an active proof request's customer link",
+  },
+  {
+    key: "proof_responses.view",
+    description: "View customer responses, comments and uploaded mark-ups on a proof request",
+  },
+  {
+    key: "proof_responses.override",
+    description:
+      "Reopen an approved proof version or invalidate a customer approval, with a reason",
+  },
+  {
+    key: "proof_reminders.manage",
+    description: "Suppress or view the automatic proof reminder for a proof request",
+  },
+  // Milestone 10 — export for print and production artwork. Separate from
+  // proof_groups.*/proof_versions.* since production artwork is its own
+  // artefact, distinct from the customer-facing proof file.
+  {
+    key: "production_artwork.view",
+    description: "View production artwork prepared for a proof group",
+  },
+  {
+    key: "production_artwork.create",
+    description: "Create a new production artwork revision for an export-eligible proof group",
+  },
+  {
+    key: "production_artwork.upload",
+    description: "Upload the file for a production artwork revision",
+  },
+  {
+    key: "production_artwork.update",
+    description:
+      "Edit a production artwork revision's metadata, order-line allocation or validation state",
+  },
+  {
+    key: "production_artwork.cancel",
+    description: "Cancel a production artwork revision",
+  },
+  {
+    key: "production_exports.create",
+    description: "Create an export batch (the dedicated export-for-print action) for an order",
+  },
+  {
+    key: "production_exports.view",
+    description: "View export batches, their manifests and export history for an order",
+  },
+  {
+    key: "production_exports.download",
+    description: "Download a generated export package",
+  },
+  {
+    key: "production_exports.reexport",
+    description: "Re-export an order with a documented reason after something has changed",
+  },
+  {
+    key: "production_exports.override",
+    description:
+      "Export without the normal approved-proof/no-proof-required eligibility using the manual-override framework",
+  },
+  // Milestone 11 — production queue and workstation workflow. Separate from
+  // production_artwork.*/production_exports.* (Milestone 10) since those
+  // gate preparing/exporting the artwork, while these gate the actual
+  // floor-work queue that consumes an export batch.
+  { key: "production_queue.view", description: "View the production queue" },
+  {
+    key: "production_jobs.create",
+    description: "Create production jobs/tasks from a successful export batch",
+  },
+  { key: "production_jobs.view", description: "View production job and task detail" },
+  { key: "production_jobs.assign", description: "Assign a production job or task to staff" },
+  {
+    key: "production_jobs.update",
+    description: "Edit a production job's priority, due date or department",
+  },
+  { key: "production_jobs.start", description: "Start or resume a production task" },
+  { key: "production_jobs.pause", description: "Pause a production task with a reason" },
+  { key: "production_jobs.complete", description: "Complete a production task or job" },
+  {
+    key: "production_jobs.reopen",
+    description: "Reopen a completed production task or job, with a reason",
+  },
+  {
+    key: "production_quantities.update",
+    description: "Record produced, failed or rework quantities against a production task",
+  },
+  {
+    key: "production_quality_check.perform",
+    description: "Record a quality-check result against a production task",
+  },
+  { key: "production_issues.create", description: "Report a production issue" },
+  { key: "production_issues.resolve", description: "Resolve or cancel a production issue" },
+  {
+    key: "production_notes.create",
+    description: "Add an internal note to a production job or task",
+  },
+  {
+    key: "production_overrides.create",
+    description:
+      "Perform a reasoned manual override on production (e.g. reopening completed work, exceeding an allocated quantity)",
+  },
+  // Milestone 12 — Starshipit freight labels. Gated on
+  // ShopifyOrder.productionSummary === COMPLETE at the domain-function level,
+  // not by any packing model (none exists yet — see ADR-0008).
+  {
+    key: "freight_shipments.view",
+    description: "View freight shipments and their tracking/Shopify-sync status for an order",
+  },
+  {
+    key: "freight_shipments.create",
+    description: "Create a Starshipit freight shipment and print its label for an order",
+  },
+  {
+    key: "freight_shipments.download",
+    description: "Download a generated freight label PDF",
+  },
+  {
+    key: "freight_shipments.cancel",
+    description: "Cancel a freight shipment record (does not void the label with the carrier)",
+  },
+  // Milestone 13 — warehouse picking. A checklist workflow, not real
+  // inventory tracking (no SKU/bin on-hand-quantity model exists). Auto-
+  // created once ShopifyOrder.productionSummary === COMPLETE — see ADR-0009.
+  {
+    key: "warehouse_picks.view",
+    description: "View warehouse pick jobs and their pick lists for an order",
+  },
+  {
+    key: "warehouse_picks.assign",
+    description: "Assign a warehouse pick job to staff",
+  },
+  {
+    key: "warehouse_picks.record_quantity",
+    description: "Record a picked quantity against a warehouse pick item",
+  },
+  {
+    key: "warehouse_picks.mark_short",
+    description: "Mark a warehouse pick item as short (unable to fulfil the required quantity)",
+  },
+  {
+    key: "warehouse_picks.handover",
+    description: "Hand a completed warehouse pick job over to packing",
+  },
+  { key: "warehouse_issues.create", description: "Report a warehouse pick issue" },
+  { key: "warehouse_issues.resolve", description: "Resolve or cancel a warehouse pick issue" },
+  {
+    key: "warehouse_notes.create",
+    description: "Add an internal note to a warehouse pick job",
+  },
+  // Milestone 14 — exception cases (returns, warranty claims, production
+  // defects). Refunds/credits are record-only (no Shopify money movement);
+  // return labels are a manual/external fact — see ADR-0010.
+  { key: "exception_cases.view", description: "View exception cases for an order" },
+  {
+    key: "exception_cases.create",
+    description: "Report a new exception case (return, warranty claim, or production defect)",
+  },
+  {
+    key: "exception_cases.update",
+    description:
+      "Edit an exception case's details, transition its investigation status, and record a return label",
+  },
+  { key: "exception_cases.assign", description: "Assign an exception case to staff" },
+  {
+    key: "exception_cases.resolve",
+    description:
+      "Record a resolution for an exception case (reprint, credit, refund, exchange, or denied) and mark a resolution completed",
+  },
+  { key: "exception_cases.cancel", description: "Cancel an exception case" },
+  {
+    key: "exception_notes.create",
+    description: "Add an internal note to an exception case",
+  },
 ] as const;
 
 // SRS Section 6 — Users, Roles and Permissions. "Customer" isn't a StaffUser
@@ -121,6 +309,57 @@ const ROLE_PERMISSIONS: Record<string, readonly (typeof PERMISSIONS)[number]["ke
     "proof_artwork.assign",
     "proof_artwork.notes.create",
     "proof_overrides.create",
+    "proof_requests.create",
+    "proof_requests.view",
+    "proof_requests.resend",
+    "proof_requests.revoke",
+    "proof_responses.view",
+    "proof_responses.override",
+    "proof_reminders.manage",
+    "production_artwork.view",
+    "production_artwork.create",
+    "production_artwork.upload",
+    "production_artwork.update",
+    "production_artwork.cancel",
+    "production_exports.create",
+    "production_exports.view",
+    "production_exports.download",
+    "production_exports.reexport",
+    "production_exports.override",
+    "production_queue.view",
+    "production_jobs.create",
+    "production_jobs.view",
+    "production_jobs.assign",
+    "production_jobs.update",
+    "production_jobs.start",
+    "production_jobs.pause",
+    "production_jobs.complete",
+    "production_jobs.reopen",
+    "production_quantities.update",
+    "production_quality_check.perform",
+    "production_issues.create",
+    "production_issues.resolve",
+    "production_notes.create",
+    "production_overrides.create",
+    "freight_shipments.view",
+    "freight_shipments.create",
+    "freight_shipments.download",
+    "freight_shipments.cancel",
+    "warehouse_picks.view",
+    "warehouse_picks.assign",
+    "warehouse_picks.record_quantity",
+    "warehouse_picks.mark_short",
+    "warehouse_picks.handover",
+    "warehouse_issues.create",
+    "warehouse_issues.resolve",
+    "warehouse_notes.create",
+    "exception_cases.view",
+    "exception_cases.create",
+    "exception_cases.update",
+    "exception_cases.assign",
+    "exception_cases.resolve",
+    "exception_cases.cancel",
+    "exception_notes.create",
     "notes.internal.view",
     "notes.internal.create",
     "integrations.view",
@@ -151,25 +390,135 @@ const ROLE_PERMISSIONS: Record<string, readonly (typeof PERMISSIONS)[number]["ke
     "proof_artwork.assign",
     "proof_artwork.notes.create",
     "proof_overrides.create",
+    "proof_requests.create",
+    "proof_requests.view",
+    "proof_requests.resend",
+    "proof_requests.revoke",
+    "proof_responses.view",
+    "proof_responses.override",
+    "proof_reminders.manage",
+    "production_artwork.view",
+    "production_artwork.create",
+    "production_artwork.upload",
+    "production_artwork.update",
+    "production_artwork.cancel",
+    "production_exports.create",
+    "production_exports.view",
+    "production_exports.download",
+    "production_exports.reexport",
+    // Artwork staff can see production state and exact exported artwork,
+    // and respond to artwork-related production issues — but never
+    // automatically gain the ability to start/complete production work
+    // itself, matching the milestone's own "do not automatically receive
+    // production completion permissions" instruction.
+    "production_queue.view",
+    "production_jobs.view",
+    "production_issues.create",
+    // Milestone 14 — any staff member can report a problem and add notes;
+    // only management updates/assigns/resolves/cancels a case, mirroring
+    // exactly how Print Staff can create a ProductionIssue but not resolve one.
+    "exception_cases.view",
+    "exception_cases.create",
+    "exception_notes.create",
     "notes.internal.view",
     "notes.internal.create",
     "overrides.create",
   ],
-  PRINT_STAFF: ["board.view", "orders.view", "proof_groups.view", "proof_versions.view"],
-  PACKING_STAFF: ["board.view"],
+  // Maps onto the milestone's suggested "Production" role — this shop's
+  // existing floor-work role (screen print/DTF/embroidery/press) already
+  // matches AssignmentRole.PRODUCTION's reserved meaning, so it's extended
+  // here rather than introducing a sixth StaffUser role.
+  PRINT_STAFF: [
+    "board.view",
+    "orders.view",
+    "proof_groups.view",
+    "proof_versions.view",
+    "proof_requests.view",
+    "proof_responses.view",
+    "production_artwork.view",
+    "production_exports.view",
+    "production_exports.download",
+    "production_queue.view",
+    "production_jobs.view",
+    "production_jobs.assign",
+    "production_jobs.start",
+    "production_jobs.pause",
+    "production_jobs.complete",
+    "production_quantities.update",
+    "production_quality_check.perform",
+    "production_issues.create",
+    "production_notes.create",
+    "exception_cases.view",
+    "exception_cases.create",
+    "exception_notes.create",
+  ],
+  PACKING_STAFF: [
+    "board.view",
+    // Read-only view of completed production where needed — no production
+    // editing by default, per the milestone's own suggested access.
+    "production_queue.view",
+    "production_jobs.view",
+    // Milestone 12 — this role's first real capability: view/download only
+    // for now (matching the milestone's own suggested access) — shipment
+    // creation and cancellation stay Manager-only until real usage patterns
+    // justify widening it.
+    "freight_shipments.view",
+    "freight_shipments.download",
+    // Milestone 13 — this role's first real job-execution capability set,
+    // mirroring exactly how Print Staff can create but not resolve
+    // production issues: everything needed to run the pick queue day to
+    // day, but issue resolution stays Manager-only.
+    "warehouse_picks.view",
+    "warehouse_picks.assign",
+    "warehouse_picks.record_quantity",
+    "warehouse_picks.mark_short",
+    "warehouse_picks.handover",
+    "warehouse_issues.create",
+    "warehouse_notes.create",
+    "exception_cases.view",
+    "exception_cases.create",
+    "exception_notes.create",
+  ],
 };
 
+// The three Admin API scopes actually read from (read_orders, read_products,
+// read_customers) plus write_fulfillments, the one write scope in use since
+// Milestone 12's fulfillmentCreate tracking sync — kept as one source of
+// truth here rather than letting docs/development.md's scope list and this
+// value silently drift apart the way they previously had.
+const SHOPIFY_SCOPES = "read_orders,read_products,read_customers,write_fulfillments";
+
 async function main() {
-  const shop = await db.shop.upsert({
-    where: { shopifyDomain: "just-shear-dev.myshopify.com" },
-    update: {},
-    create: {
-      shopifyDomain: "just-shear-dev.myshopify.com",
-      shopifyShopGid: "gid://shopify/Shop/0000000000",
-      adminApiToken: "placeholder-set-real-token-in-env-managed-config",
-      scopes: "read_orders,read_products,write_orders",
-    },
-  });
+  // Sourced from env, not hardcoded — env.server.ts already requires both of
+  // these to be set for the app to boot at all, so re-running the seed is
+  // the supported way to point this app at a real store (or back at a local
+  // placeholder) without hand-editing the database. This is a single-shop
+  // app in practice (no multi-tenant onboarding flow exists), so there is
+  // always exactly one Shop row: update it in place if one already exists,
+  // rather than upserting by domain, which would otherwise create a second
+  // orphaned row the moment SHOPIFY_SHOP_DOMAIN changes between seed runs.
+  const shopifyDomain = process.env.SHOPIFY_SHOP_DOMAIN;
+  const adminApiToken = process.env.SHOPIFY_ADMIN_API_TOKEN;
+  if (!shopifyDomain || !adminApiToken) {
+    throw new Error(
+      "SHOPIFY_SHOP_DOMAIN and SHOPIFY_ADMIN_API_TOKEN must both be set in .env before seeding.",
+    );
+  }
+
+  const existingShop = await db.shop.findFirst();
+  const shop = existingShop
+    ? await db.shop.update({
+        where: { id: existingShop.id },
+        data: { shopifyDomain, adminApiToken, scopes: SHOPIFY_SCOPES },
+      })
+    : await db.shop.create({
+        data: {
+          shopifyDomain,
+          shopifyShopGid: "gid://shopify/Shop/0000000000",
+          adminApiToken,
+          scopes: SHOPIFY_SCOPES,
+        },
+      });
 
   for (const permission of PERMISSIONS) {
     await db.permission.upsert({

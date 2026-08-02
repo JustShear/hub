@@ -3,6 +3,8 @@ import { PROOF_SUMMARY_LABELS } from "~/domain/orders/labels";
 import { summarizeProofGroupsForBoard } from "~/domain/proofs/board-summary";
 import { CreateProofGroupDialog } from "~/components/order-drawer/proofs/CreateProofGroupDialog";
 import { ProofGroupCard } from "~/components/order-drawer/proofs/ProofGroupCard";
+import { SendProofDialog } from "~/components/order-drawer/proofs/SendProofDialog";
+import { ProofRequestHistory } from "~/components/order-drawer/proofs/ProofRequestHistory";
 import type { OrderDetail } from "~/domain/orders/order-detail-query.server";
 
 export interface ProofsTabProps {
@@ -11,11 +13,17 @@ export interface ProofsTabProps {
   canCreateProofGroups: boolean;
   canUpdateProofGroups: boolean;
   canCancelProofGroups: boolean;
-  canUpdateProofRequirement: boolean;
   canCreateProofVersions: boolean;
   canUpdateProofVersionStatus: boolean;
   canAssignProofArtwork: boolean;
   canCreateProofNotes: boolean;
+  canCreateProofRequests: boolean;
+  canViewProofRequests: boolean;
+  canResendProofRequests: boolean;
+  canRevokeProofRequests: boolean;
+  canViewProofResponses: boolean;
+  canOverrideProofResponses: boolean;
+  canManageProofReminders: boolean;
 }
 
 export function ProofsTab({
@@ -24,11 +32,17 @@ export function ProofsTab({
   canCreateProofGroups,
   canUpdateProofGroups,
   canCancelProofGroups,
-  canUpdateProofRequirement,
   canCreateProofVersions,
   canUpdateProofVersionStatus,
   canAssignProofArtwork,
   canCreateProofNotes,
+  canCreateProofRequests,
+  canViewProofRequests,
+  canResendProofRequests,
+  canRevokeProofRequests,
+  canViewProofResponses,
+  canOverrideProofResponses,
+  canManageProofReminders,
 }: ProofsTabProps) {
   const nonCancelledGroups = order.proofGroups.filter((g) => g.status !== "CANCELLED");
   const counts = summarizeProofGroupsForBoard(
@@ -73,18 +87,22 @@ export function ProofsTab({
             <p className="mt-0.5 text-xs text-muted">
               {order.proofGroups.length} group{order.proofGroups.length === 1 ? "" : "s"} ·{" "}
               {counts.readyCount} ready · {counts.requiringWorkCount} in progress ·{" "}
-              {counts.noProofRequiredCount} no proof required · {counts.blockedCount} blocked ·{" "}
-              {cancelledCount} cancelled
+              {counts.waitingOnCustomerCount} awaiting customer · {counts.changesRequestedCount}{" "}
+              changes requested · {counts.approvedCount} approved · {counts.noProofRequiredCount} no
+              proof required · {counts.blockedCount} blocked · {cancelledCount} cancelled
             </p>
           </div>
-          {canCreateProofGroups ? (
-            <CreateProofGroupDialog
-              orderId={order.id}
-              lineOptions={lineOptions}
-              assetOptions={assetOptions}
-              assignableStaff={assignableStaff}
-            />
-          ) : null}
+          <div className="flex gap-2">
+            {canCreateProofRequests ? <SendProofDialog order={order} /> : null}
+            {canCreateProofGroups ? (
+              <CreateProofGroupDialog
+                orderId={order.id}
+                lineOptions={lineOptions}
+                assetOptions={assetOptions}
+                assignableStaff={assignableStaff}
+              />
+            ) : null}
+          </div>
         </div>
         {blockedGroups.length > 0 ? (
           <p className="mt-2 text-xs text-error">
@@ -115,15 +133,25 @@ export function ProofsTab({
               assignableStaff={assignableStaff}
               canUpdate={canUpdateProofGroups}
               canCancel={canCancelProofGroups}
-              canUpdateRequirement={canUpdateProofRequirement}
               canCreateVersions={canCreateProofVersions}
               canUpdateVersionStatus={canUpdateProofVersionStatus}
               canAssignArtwork={canAssignProofArtwork}
               canCreateNotes={canCreateProofNotes}
+              canOverride={canOverrideProofResponses}
             />
           ))}
         </div>
       )}
+
+      {canViewProofRequests ? (
+        <ProofRequestHistory
+          orderId={order.id}
+          requests={canViewProofResponses ? order.proofRequests : []}
+          canResend={canResendProofRequests}
+          canRevoke={canRevokeProofRequests}
+          canManageReminders={canManageProofReminders}
+        />
+      ) : null}
     </div>
   );
 }

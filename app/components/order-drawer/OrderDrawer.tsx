@@ -16,6 +16,10 @@ import { ShopifyTab } from "~/components/order-drawer/ShopifyTab";
 import { ActivityTab } from "~/components/order-drawer/ActivityTab";
 import { PlaceholderTab } from "~/components/order-drawer/PlaceholderTab";
 import { ProofsTab } from "~/components/order-drawer/proofs/ProofsTab";
+import { ProductionTab } from "~/components/order-drawer/production/ProductionTab";
+import { FreightTab } from "~/components/order-drawer/freight/FreightTab";
+import { WarehouseTab } from "~/components/order-drawer/warehouse/WarehouseTab";
+import { ExceptionsTab } from "~/components/order-drawer/exceptions/ExceptionsTab";
 
 export interface OrderDrawerProps {
   order: OrderDetail;
@@ -32,11 +36,33 @@ export interface OrderDrawerProps {
   canCreateProofGroups: boolean;
   canUpdateProofGroups: boolean;
   canCancelProofGroups: boolean;
-  canUpdateProofRequirement: boolean;
   canCreateProofVersions: boolean;
   canUpdateProofVersionStatus: boolean;
   canAssignProofArtwork: boolean;
   canCreateProofNotes: boolean;
+  canCreateProofRequests: boolean;
+  canViewProofRequests: boolean;
+  canResendProofRequests: boolean;
+  canRevokeProofRequests: boolean;
+  canViewProofResponses: boolean;
+  canOverrideProofResponses: boolean;
+  canManageProofReminders: boolean;
+  canViewProductionArtwork: boolean;
+  canCreateProductionArtwork: boolean;
+  canUpdateProductionArtwork: boolean;
+  canCancelProductionArtwork: boolean;
+  canCreateExportBatch: boolean;
+  canViewExportBatches: boolean;
+  canDownloadExportBatches: boolean;
+  canReexportBatch: boolean;
+  canViewProductionQueue: boolean;
+  canViewFreight: boolean;
+  canCreateFreight: boolean;
+  canDownloadFreight: boolean;
+  canCancelFreight: boolean;
+  canViewWarehousePicks: boolean;
+  canViewExceptionCases: boolean;
+  canCreateExceptionCases: boolean;
 }
 
 function nearestDueDate(order: OrderDetail) {
@@ -60,11 +86,33 @@ export function OrderDrawer({
   canCreateProofGroups,
   canUpdateProofGroups,
   canCancelProofGroups,
-  canUpdateProofRequirement,
   canCreateProofVersions,
   canUpdateProofVersionStatus,
   canAssignProofArtwork,
   canCreateProofNotes,
+  canCreateProofRequests,
+  canViewProofRequests,
+  canResendProofRequests,
+  canRevokeProofRequests,
+  canViewProofResponses,
+  canOverrideProofResponses,
+  canManageProofReminders,
+  canViewProductionArtwork,
+  canCreateProductionArtwork,
+  canUpdateProductionArtwork,
+  canCancelProductionArtwork,
+  canCreateExportBatch,
+  canViewExportBatches,
+  canDownloadExportBatches,
+  canReexportBatch,
+  canViewProductionQueue,
+  canViewFreight,
+  canCreateFreight,
+  canDownloadFreight,
+  canCancelFreight,
+  canViewWarehousePicks,
+  canViewExceptionCases,
+  canCreateExceptionCases,
 }: OrderDrawerProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -220,6 +268,10 @@ export function OrderDrawer({
                 { value: "products", label: "Products" },
                 { value: "uploads", label: "Uploads" },
                 { value: "proofs", label: "Proofs" },
+                { value: "production", label: "Production Artwork" },
+                { value: "freight", label: "Freight" },
+                { value: "warehouse", label: "Warehouse" },
+                { value: "exceptions", label: "Exceptions" },
                 { value: "communication", label: "Communication" },
                 { value: "notes", label: "Notes" },
                 { value: "shopify", label: "Shopify" },
@@ -259,16 +311,76 @@ export function OrderDrawer({
                     canCreateProofGroups={canCreateProofGroups}
                     canUpdateProofGroups={canUpdateProofGroups}
                     canCancelProofGroups={canCancelProofGroups}
-                    canUpdateProofRequirement={canUpdateProofRequirement}
                     canCreateProofVersions={canCreateProofVersions}
                     canUpdateProofVersionStatus={canUpdateProofVersionStatus}
                     canAssignProofArtwork={canAssignProofArtwork}
                     canCreateProofNotes={canCreateProofNotes}
+                    canCreateProofRequests={canCreateProofRequests}
+                    canViewProofRequests={canViewProofRequests}
+                    canResendProofRequests={canResendProofRequests}
+                    canRevokeProofRequests={canRevokeProofRequests}
+                    canViewProofResponses={canViewProofResponses}
+                    canOverrideProofResponses={canOverrideProofResponses}
+                    canManageProofReminders={canManageProofReminders}
                   />
                 ) : (
                   <PlaceholderTab
                     title="Proofs are restricted"
                     description="You don't have permission to view proof groups."
+                  />
+                )}
+              </Tabs.Content>
+              <Tabs.Content value="production">
+                {canViewProductionArtwork || canViewExportBatches || canViewProductionQueue ? (
+                  <ProductionTab
+                    order={order}
+                    canCreateProductionArtwork={canCreateProductionArtwork}
+                    canUpdateProductionArtwork={canUpdateProductionArtwork}
+                    canCancelProductionArtwork={canCancelProductionArtwork}
+                    canCreateExportBatch={canCreateExportBatch}
+                    canDownloadExportBatches={canDownloadExportBatches}
+                    canReexportBatch={canReexportBatch}
+                    canViewProductionQueue={canViewProductionQueue}
+                  />
+                ) : (
+                  <PlaceholderTab
+                    title="Production artwork is restricted"
+                    description="You don't have permission to view production artwork or export batches."
+                  />
+                )}
+              </Tabs.Content>
+              <Tabs.Content value="freight">
+                {canViewFreight ? (
+                  <FreightTab
+                    order={order}
+                    canCreateFreight={canCreateFreight}
+                    canDownloadFreight={canDownloadFreight}
+                    canCancelFreight={canCancelFreight}
+                  />
+                ) : (
+                  <PlaceholderTab
+                    title="Freight is restricted"
+                    description="You don't have permission to view freight shipments."
+                  />
+                )}
+              </Tabs.Content>
+              <Tabs.Content value="warehouse">
+                {canViewWarehousePicks ? (
+                  <WarehouseTab order={order} />
+                ) : (
+                  <PlaceholderTab
+                    title="Warehouse picking is restricted"
+                    description="You don't have permission to view warehouse pick jobs."
+                  />
+                )}
+              </Tabs.Content>
+              <Tabs.Content value="exceptions">
+                {canViewExceptionCases ? (
+                  <ExceptionsTab order={order} canCreateExceptionCases={canCreateExceptionCases} />
+                ) : (
+                  <PlaceholderTab
+                    title="Exceptions are restricted"
+                    description="You don't have permission to view exception cases."
                   />
                 )}
               </Tabs.Content>

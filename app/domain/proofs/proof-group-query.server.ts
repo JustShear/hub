@@ -1,7 +1,9 @@
 import type {
+  ColourMode,
   DecorationMethod,
   NoProofReason,
   Priority,
+  ProductionArtworkStatus,
   ProofGroupStatus,
   ProofRequirementValue,
   ProofVersionStatus,
@@ -73,6 +75,39 @@ export interface OrderDetailProofVersion {
   notes: OrderDetailProofNote[];
 }
 
+export interface OrderDetailProductionArtworkOrderLine {
+  orderLineId: string;
+  quantity: number;
+  productTitle: string;
+}
+
+export interface OrderDetailProductionArtwork {
+  id: string;
+  revisionNumber: number;
+  status: ProductionArtworkStatus;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isPreviewable: boolean;
+  width: number | null;
+  height: number | null;
+  dpi: number | null;
+  colourMode: ColourMode | null;
+  decorationMethod: DecorationMethod;
+  placement: string | null;
+  validationStatus: boolean;
+  validationMessages: string[];
+  createdByStaffId: string;
+  createdByStaffName: string;
+  createdAt: string;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  sourceProofVersionId: string | null;
+  sourceNoProofReasonSnapshot: NoProofReason | null;
+  supersededByArtworkId: string | null;
+  orderLineAllocations: OrderDetailProductionArtworkOrderLine[];
+}
+
 export interface OrderDetailProofGroup {
   id: string;
   name: string;
@@ -98,6 +133,7 @@ export interface OrderDetailProofGroup {
   hasOpenIntegrationFailure: boolean;
   integrationIssueSummary: string | null;
   readiness: ReadinessResult;
+  productionArtworks: OrderDetailProductionArtwork[];
 }
 
 export async function loadProofGroupsForOrder(params: {
@@ -119,6 +155,12 @@ export async function loadProofGroupsForOrder(params: {
           assets: { orderBy: { sortOrder: "asc" } },
           sourceAssets: true,
           notes: { orderBy: { createdAt: "desc" } },
+        },
+      },
+      productionArtworks: {
+        orderBy: { revisionNumber: "desc" },
+        include: {
+          orderLineAllocations: { include: { orderLine: { select: { productTitle: true } } } },
         },
       },
     },
@@ -143,6 +185,7 @@ export async function loadProofGroupsForOrder(params: {
     ...groups.flatMap((g) => g.notes.map((n) => n.authorStaffId)),
     ...groups.flatMap((g) => g.versions.map((v) => v.createdByStaffId)),
     ...groups.flatMap((g) => g.versions.flatMap((v) => v.notes.map((n) => n.authorStaffId))),
+    ...groups.flatMap((g) => g.productionArtworks.map((a) => a.createdByStaffId)),
   ];
   const staffNames = await resolveStaffNames(staffIds);
 
@@ -159,7 +202,7 @@ export async function loadProofGroupsForOrder(params: {
       linkedLineCount: group.orderLines.length,
       currentVersion: latestVersion
         ? {
-            status: latestVersion.status as "DRAFT" | "READY_TO_SEND" | "SUPERSEDED" | "CANCELLED",
+            status: latestVersion.status,
             hasStoredFile: latestVersion.assets.length > 0,
           }
         : null,
@@ -251,6 +294,38 @@ export async function loadProofGroupsForOrder(params: {
       hasOpenIntegrationFailure: failure !== null,
       integrationIssueSummary: failure?.summary ?? null,
       readiness,
+      productionArtworks: group.productionArtworks.map((artwork) => ({
+        id: artwork.id,
+        revisionNumber: artwork.revisionNumber,
+        status: artwork.status,
+        originalFilename: artwork.originalFilename,
+        mimeType: artwork.mimeType,
+        sizeBytes: artwork.sizeBytes,
+        isPreviewable: artwork.isPreviewable,
+        width: artwork.width,
+        height: artwork.height,
+        dpi: artwork.dpi,
+        colourMode: artwork.colourMode,
+        decorationMethod: artwork.decorationMethod,
+        placement: artwork.placement,
+        validationStatus: artwork.validationStatus,
+        validationMessages: Array.isArray(artwork.validationMessages)
+          ? (artwork.validationMessages as string[])
+          : [],
+        createdByStaffId: artwork.createdByStaffId,
+        createdByStaffName: staffNames.get(artwork.createdByStaffId) ?? "Unknown staff member",
+        createdAt: artwork.createdAt.toISOString(),
+        cancelledAt: artwork.cancelledAt?.toISOString() ?? null,
+        cancelReason: artwork.cancelReason,
+        sourceProofVersionId: artwork.sourceProofVersionId,
+        sourceNoProofReasonSnapshot: artwork.sourceNoProofReasonSnapshot,
+        supersededByArtworkId: artwork.supersededByArtworkId,
+        orderLineAllocations: artwork.orderLineAllocations.map((link) => ({
+          orderLineId: link.orderLineId,
+          quantity: link.quantity,
+          productTitle: link.orderLine.productTitle,
+        })),
+      })),
     };
   });
 }

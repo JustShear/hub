@@ -4,13 +4,29 @@ This document covers things a developer needs to know that aren't obvious from t
 
 ## Shopify scopes
 
-The app requests exactly three read scopes — no write scopes exist yet (tag sync is Milestone 15):
+The app requests four scopes total:
 
 - `read_orders`
 - `read_products`
 - `read_customers`
+- `write_fulfillments` — added in Milestone 12 for `fulfillmentCreate` (writing tracking numbers back to Shopify after a Starshipit freight label is created); this doc originally said "no write scopes exist yet," which was true before that milestone and stale afterward
 
-Configured once, manually, when the custom app is created in Shopify Admin → Settings → Apps → Develop apps. There is no OAuth scope-grant flow to keep in sync — `Shop.scopes` in the database is a record of what was granted, not something the app negotiates at runtime.
+Configured once, manually, when the custom app is created in Shopify Admin → Settings → Apps → Develop apps. `Shop.scopes` in the database is a record of what was granted, not something the app negotiates at runtime. `prisma/seed.ts` writes `SHOPIFY_SHOP_DOMAIN`/`SHOPIFY_ADMIN_API_TOKEN` (from `.env`) into the `Shop` row on every seed run — re-run `npm run db:seed` after changing either value in `.env` to point the app at a different store.
+
+### Getting a real Admin API access token (as of this store's Shopify account, mid-2026)
+
+This section originally assumed the classic custom-app model: create the app, install it, and Shopify hands you a static `shpat_...` token directly with no OAuth involved. **That model no longer applies to every store** — depending on the Shopify account, "Develop apps" may only expose a Client ID/Secret pair (OAuth-style credentials) and no static token at all, even after installing the app and configuring scopes. If you hit this:
+
+1. Create the app in Shopify Admin → Settings → Apps and sales channels → Develop apps, with **scopes configured and saved in Configuration → Admin API integration before installing** — scopes granted later via OAuth can only ever be a subset of what's checked here, so get this right first.
+2. Install the app. Note the **Client ID** and **Secret** (called "Client ID and Secret" under Credentials, not "API key/secret key" as older Shopify docs describe).
+3. **Don't bother with the client-credentials grant** (`grant_type: client_credentials` against `/admin/oauth/access_token`) — it authenticates fine but comes back with an empty `scope`, and every Admin API call then fails with `ACCESS_DENIED` regardless of what's configured. This app type requires actual merchant consent.
+4. Do a one-time **authorization-code grant** instead:
+   - Visit (as the logged-in store owner) `https://{shop}.myshopify.com/admin/oauth/authorize?client_id={client_id}&scope={comma-separated scopes}&redirect_uri={redirect_uri}&state={random nonce}` — the `redirect_uri` must match the app's configured **App URL** exactly (there's no separate "allowed redirection URLs" field for this app type).
+   - Approve the consent screen. Shopify redirects to `{redirect_uri}?code=...&state=...` — the redirect target doesn't need to be a real working endpoint; just read the `code` out of the browser's address bar.
+   - Exchange it immediately (codes are short-lived, single-use): `POST https://{shop}.myshopify.com/admin/oauth/access_token` with `{"client_id", "client_secret", "code"}` in the body. The response's `access_token` (a `shpat_...` string) is the real token — put it in `SHOPIFY_ADMIN_API_TOKEN`. Unlike the client-credentials token (which expires in ~24 hours), this one has no `expires_in` and behaves like a classic long-lived custom-app token.
+5. Keep the Client ID/Secret around (e.g. as `SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` in `.env`, outside the validated env schema) — you'll need them again if the token is ever revoked or a scope needs adding, since step 4 has to be repeated from scratch (a new authorization always re-confirms the full scope set, it doesn't incrementally add one scope).
+
+Verified end-to-end against the real `just-shear.myshopify.com` store this way — see technical-debt item 5.
 
 ## Registered webhook topics
 
@@ -209,34 +225,49 @@ Avoid literal `*/` inside CSS comments (even across "bg-*, text-*, border-*"-sty
 - A signed-out request redirects to `/login`; a signed-in request without `board.view` gets a 403 `Response`, same pattern as every other protected route.
 - The "Orders" nav item (`app/lib/navigation.ts`) is gated on `board.view` and only renders for authorised staff.
 
-### Board-column mapping
+### Board-column mapping (redesigned — see ADR-0013)
 
-`workflowStatus` (`OrderStatus`, 16 values) remains the core status model — nothing about it changed. `app/domain/orders/board-columns.ts` is the *one* place that maps it down to the SRS's 7 Stage One columns, since `OrderStatus` is more granular than the board needs and doesn't have distinct values for two of the columns:
+Superseded the original 7-column, purely `workflowStatus`/`proofSummary`-driven design above. **9 columns now**, most driven by real Shopify order tags rather than internal state — `app/domain/orders/board-columns.ts` is still the *one* place the mapping happens, but it now reads `ShopifyOrder.tags` (`BoardOrderLike.tags`) as well as `workflowStatus`:
 
-| Priority | Column | Rule |
-| --- | --- | --- |
-| 1 | Changes Requested | `proofSummary = CHANGES_REQUESTED` (promotes ahead of workflowStatus — no distinct `OrderStatus` value exists for this) |
-| 2 | Proof Sent | `proofSummary = WAITING_ON_CUSTOMER` (same reasoning) |
-| 3 | New | `workflowStatus = NEW` |
-| 4 | Proof Being Prepared | `workflowStatus IN (ARTWORK_REQUIRED, PROOFING_IN_PROGRESS)` |
-| 5 | Waiting on Customer | `workflowStatus = WAITING_CUSTOMER` |
-| 6 | Proof Approved | `workflowStatus IN (PARTIALLY_APPROVED, READY_FOR_EXPORT)` |
-| 7 | Exported for Print | `workflowStatus IN (PARTIALLY_EXPORTED, EXPORTED_FOR_PRINT, IN_PRODUCTION, PARTIALLY_COMPLETE, READY_TO_PACK, PACKING, FULFILLED)` — a catch-all, since no production/warehouse/packing screen exists yet to send these orders to |
+| Display order | Column | Rule | Interactive? |
+| --- | --- | --- | --- |
+| 1 | New | `workflowStatus = NEW`, or the structural catch-all when nothing more specific matches | Yes → sets `NEW` |
+| 2 | Order Sheet Printed | tag `"p"` — applied **externally**, staff tag the order in Shopify directly | No |
+| 3 | Waiting on Customer | tag `"emailed"` — applied **externally**, a manual pre-proofing email staff send outside the Hub | No |
+| 4 | Proof Being Prepared | `workflowStatus IN (ARTWORK_REQUIRED, PROOFING_IN_PROGRESS, WAITING_CUSTOMER)` | Yes → sets `PROOFING_IN_PROGRESS` |
+| 5 | Proof Sent | tag `"proof_sent"` — applied **by the Hub** when `sendProofRequest` succeeds | No |
+| 6 | Changes Requested | tag `"proof_rejected"` — applied **by the Hub** when a customer response's recalculated aggregate is `CHANGES_REQUESTED` | No |
+| 7 | Proof Approved | tag `"proof_accepted"` — applied **by the Hub** when the recalculated aggregate is `PARTIALLY_APPROVED`/`ALL_REQUIRED_PROOFS_APPROVED` | No |
+| 8 | Exported for Print | tag `"Exported for Print"` — applied **by the Hub** when `createExportBatch` succeeds | No |
+| 9 | Pack | `workflowStatus IN (READY_TO_PACK, PACKING)` — set automatically by `handoverWarehousePickJob` (Milestone 13) *or* manually by drag, for orders that skip warehouse picking entirely. Freight controls (weight/dimensions, live rates, create label) render inline on the card — see the Freight section below. | Yes → sets `READY_TO_PACK` |
 
-Rules are evaluated top-to-bottom; the first match wins (`getBoardColumnKey`). Rules 3–7 partition every non-special `OrderStatus` value exactly once (verified by a unit test), so no active order can ever fail to land in a column. `ON_HOLD`, `CANCELLED`, and `ARCHIVED` never appear on the main board at all (`isSpecialStatus`) — they live in their own read-only tab (SRS 9.2).
+`ON_HOLD`, `CANCELLED`, `ARCHIVED`, and **`FULFILLED`** (new — see below) never appear on the main board at all (`isSpecialStatus`) — each lives in its own read-only tab.
 
-**To add a workflow status safely**: add the new `OrderStatus` enum value in `prisma/schema.prisma` (migration), then add it to exactly one of the `PROOF_BEING_PREPARED_STATUSES` / `PROOF_APPROVED_STATUSES` / `EXPORTED_STATUSES` arrays (or `SPECIAL_STATUSES` if it should never appear on the main board) in `board-columns.ts`. The "never orphaned" unit test will fail loudly if you forget.
+**Why tags, not new `OrderStatus` values**: the shop already tags orders in Shopify for reasons independent of this app (staff workflow, other tools), and four of the six tag-driven columns map directly onto actions the Hub already performs internally — reusing that existing signal avoids inventing a parallel, easily-desynced concept. Two tags (`p`, `emailed`) are intentionally read-only from the Hub's side since they're applied by processes outside it.
+
+**Column-definition internals**: each column is defined as a raw rule (`ownMatches`, `ownWhere`, a `matchPriority` number) in `board-columns.ts`'s `RULES` array, and the real `matches()`/`where` are *derived* by automatically folding in "AND NOT any higher-priority rule's own condition." This is deliberate — hand-maintaining two independent exclusion lists (one for the JS predicate, one for the Prisma `where` fragment) is exactly the kind of thing that silently drifts once tags (which can coexist on one order, unlike a single-valued `workflowStatus`) drive most columns. `matchPriority` order (most-advanced-state-wins, used only to resolve an order carrying multiple applicable signals) is intentionally different from `BOARD_COLUMNS`' display order — see the file for both.
+
+**To add a workflow status safely**: add the new `OrderStatus` enum value in `prisma/schema.prisma` (migration), then add it to the relevant rule's `ownMatches`/`ownWhere` in `board-columns.ts`'s `RULES` array (or to `SPECIAL_STATUSES` if it should never appear on the main board). The "every non-special status resolves to a column" unit test will fail loudly if you forget.
+
+**To add a new Hub-applied lifecycle tag**: call `syncOrderLifecycleTag` (`app/domain/orders/sync-order-lifecycle-tag.server.ts`) after the relevant domain function's transaction commits, wrapped in an awaited `try { ... } catch {}` (the function never throws under normal operation and records its own failure via `IntegrationFailure`/`SHOPIFY_TAG_UPDATE` — the outer catch is a defensive backstop only, mirroring `create-freight-shipment.server.ts`'s own call to `syncFreightTrackingToShopify`). Pass `removeTags` for every other lifecycle tag this stage supersedes, so at most one Hub-owned lifecycle tag is ever active on an order at a time.
+
+### `FULFILLED` → its own special view
+
+Since the old 7-value `EXPORTED_STATUSES` catch-all (which folded in `FULFILLED`) is gone, replaced by a single tag-driven `exported_for_print` column, `FULFILLED` (set only by `syncFreightTrackingToShopify` on a successful Shopify tracking write-back) needed an explicit new home. It's now a 4th `SPECIAL_STATUSES` entry, alongside `on_hold`/`cancelled`/`archived` — a fulfilled order leaves the active board entirely and appears in its own "Fulfilled" tab via the already-generic `SpecialStatusList.tsx`. `BOARD_VIEWS` (`board-filters.ts`) and `VIEW_TABS` (`BoardPage.tsx`) both gained the new `"fulfilled"` entry; `orders.tsx`'s loader and `SpecialStatusList.tsx` needed zero changes, both already fully generic over `SpecialViewKey`.
+
+### One-time tag backfill (pre-cutover)
+
+The moment column placement switched from `workflowStatus`/`proofSummary` to tags, every order already mid-flight (sent/rejected/approved/exported before this shipped) had no corresponding Hub-applied tag yet — it would otherwise silently fall back to "New." `npm run backfill:lifecycle-tags` (`scripts/backfill-lifecycle-tags.ts`) computes what the *old* column logic would have placed each active order in and calls the real `syncOrderLifecycleTag` so Shopify carries the correct tag before cutover. Defaults to a dry run (prints what it would tag, touches nothing); pass `--apply` to actually write. This is a one-time, throwaway script — it deliberately re-implements the old priority order rather than importing from the (now different) `board-columns.ts`.
 
 ### Status-transition policy (temporary — will tighten)
 
-`app/domain/orders/workflow-transitions.ts`'s `canMoveOrderToColumn` is the single, server-authoritative policy (`move-order-workflow-status.server.ts` calls it independently of whatever the client sent). Only **4 of the 7 columns are drag/Move-to destinations**:
+`app/domain/orders/workflow-transitions.ts`'s `canMoveOrderToColumn` is the single, server-authoritative policy (`move-order-workflow-status.server.ts` calls it independently of whatever the client sent) — unchanged by the redesign above, since it's already fully generic over the column config. Only **3 of the 9 columns are drag/Move-to destinations** now:
 
-- **New**, **Proof Being Prepared**, **Waiting on Customer**, **Proof Approved** — interactive; dropping a card sets `workflowStatus` to that column's representative value (`NEW`, `PROOFING_IN_PROGRESS`, `WAITING_CUSTOMER`, `READY_FOR_EXPORT` respectively).
-- **Changes Requested**, **Proof Sent** — read-only. They're driven by `proofSummary`, which is a computed rollup owned by proof-group/customer-response business logic that doesn't exist yet (proof groups aren't created until a later milestone) — nothing manually sets them from the board.
-- **Exported for Print** — read-only per the milestone's own instruction: exporting requires proof approval and export records that don't exist yet, so it's reserved for a future dedicated export action rather than a casual drag.
-- Any order whose `workflowStatus` is `ON_HOLD`, `CANCELLED`, or `ARCHIVED` cannot be moved anywhere from the board — reactivating one isn't supported yet (no matching `OverrideType` exists for it, and building a full override-approval flow is out of scope for this milestone).
+- **New**, **Proof Being Prepared**, **Pack** — interactive; dropping a card sets `workflowStatus` to that column's representative value (`NEW`, `PROOFING_IN_PROGRESS`, `READY_TO_PACK` respectively).
+- The other six columns are read-only, each carrying a `readOnlyReason` explaining what actually sets it (a Shopify tag, applied either externally or by the Hub — see the redesign section above).
+- Any order whose `workflowStatus` is `ON_HOLD`, `CANCELLED`, `ARCHIVED`, or `FULFILLED` cannot be moved anywhere from the board — reactivating one isn't supported yet (no matching `OverrideType` exists for it, and building a full override-approval flow remains out of scope).
 
-**Tighten later**: once proof-group creation, sending, and customer responses ship, "Changes Requested" and "Proof Sent" should become populated by real proof-response logic (already handled correctly, since the column mapping keys off `proofSummary`) — no board-side change needed there. Once export ships, replace the "Exported for Print is read-only" rule with a proper permission + audit check tied to that action. Once a reactivation override type exists, wire it into `canMoveOrderToColumn`'s special-status branch instead of unconditionally rejecting.
+The policy remains deliberately permissive beyond these checks — any interactive column to any other interactive column, any direction, no sequencing rules (e.g. New → Pack directly is allowed, same as New → Proof Approved was allowed under the original design).
 
 ### Moves: idempotency and auditing
 
@@ -319,7 +350,7 @@ No orders matching filters → `EmptyState` ("No orders match your filters"). Em
 - A reactivation/override flow for on-hold, cancelled, or archived orders.
 - Quick-assign from the board (explicitly optional per the milestone spec — skipped to keep scope focused; `OrderAssignment` display/filtering works, but there's no assign/unassign action here).
 - Real-time cross-staff board sync (polling or push) — each staff member sees their own last-fetched state.
-- A dedicated production/warehouse/packing screen — until one exists, everything past active proofing collapses into the "Exported for Print" catch-all column.
+- ~~A dedicated production/warehouse/packing screen~~ — **resolved post-Milestone 16**: see the "Board-column mapping (redesigned — see ADR-0013)" update above. A dedicated "Pack" column now exists, populated automatically by warehouse handover or manually by drag, with inline freight controls.
 
 ## Full order drawer (Milestone 07)
 
@@ -490,3 +521,376 @@ This milestone deliberately stops at `READY_TO_SEND` — a proof version a staff
 - Starshipit, returns, and reprints (the `Reprint` relation on `ProofGroup` exists in the schema for a later milestone; nothing writes to it yet).
 - Real-time cross-staff sync — same limitation as the board and drawer; another staff member's change to the same proof group appears only on this staff member's next load/revalidation.
 - General note editing/removal for `ProofNote`, matching `OrderNote`'s existing same limitation (see Milestone 07 above).
+
+## Customer proof portal and responses (Milestone 09)
+
+Milestone 08 built proof groups/versions but never let anything reach a customer. This milestone wires the actual send → customer review → approve/request-changes loop, entirely within the boundary the milestone set: no export-for-print, no production/warehouse/packing, no returns, and no customer-account extension.
+
+### Domain model — ProofRequest and ProofRequestGroup
+
+A `ProofRequest` is one customer communication event: it holds the secure token, the customer email/name snapshot at send time, staff message, and lifecycle timestamps (`sentAt`, `firstViewedAt`/`lastViewedAt`/`viewCount`, `revokedAt`/`revokedReason`, `completedAt`). A `ProofRequestGroup` is a join row recording the **exact** `proofGroupId` + `proofVersionId` bundled into that request — never re-derived from "whatever the group's current version is now," so history stays accurate even after a later version supersedes the one actually shown to the customer. `ProofRequestStatus` is `SENT | VIEWED | PARTIALLY_RESPONDED | COMPLETED | REVOKED | SUPERSEDED` — deliberately no stored `EXPIRED` value; expiry is a comparison against `tokenExpiresAt` done at resolve-time, not a status a background job could fail to flip. See [ADR-0005](decisions/0005-proof-request-bundling.md) for why this bundling model replaced Milestone 08's originally-reserved per-`ProofVersion` token fields.
+
+`CustomerProofResponse` (one per group per request, enforced by its `idempotencyKey` unique constraint) records the response type, customer note, change categories, request IP/user-agent, and — for an approval — which version of the approval acknowledgement wording (`PROOF_APPROVAL_ACKNOWLEDGEMENT_VERSION` in `app/domain/proofs/labels.ts`) the customer actually agreed to. `CustomerResponseAsset` holds any marked-up files, with the same metadata (`originalFilename`/`mimeType`/`sizeBytes`/`checksum`) `ProofAsset` already carries — a deliberately separate model and storage-key prefix (`customer-responses/…` vs `proof-versions/…`) so a customer mark-up is never reachable, previewable, or storable through the same path as an internal proof file.
+
+### Secure token design
+
+`app/auth/proof-token.server.ts` is the one place tokens are generated, hashed, and resolved:
+
+- `generateProofToken()` — `randomBytes(32).toString("base64url")`, 256 bits of entropy, never derived from any database identifier.
+- `hashProofToken(rawToken)` — plain `sha256` hex digest. `ProofRequest.tokenHash` is the only thing ever persisted; the raw token is returned to the caller exactly once, at creation (`sendProofRequest`'s "sent" result), and is never logged, never re-derivable from stored data, and never re-exposed by any other function.
+- `resolveProofRequestByToken(rawToken)` — hashes the incoming token and looks it up via the database's own indexed equality match on `tokenHash`. No manual byte-by-byte comparison happens anywhere in this codebase for proof tokens, so there's no naive timing side-channel to guard against with `timingSafeEqual` here (unlike the webhook HMAC check, which compares a MAC against attacker-supplied bytes directly in application code). Returns a discriminated result (`valid | not_found | revoked | expired`) — never throws for an invalid link, since that's an expected, common outcome for a public endpoint.
+- `computeProofTokenExpiry()` — `now + PROOF_TOKEN_EXPIRY_DAYS` (env var, default **14 days**, documented in `.env.example`).
+
+Tokens are scoped to exactly one `ProofRequest` (never grant staff access, never expose another order, never expose the Raw Data Inspector — the public routes don't go through `requireStaffUser`/RBAC at all, they're gated purely by token possession). The one place the raw token is deliberately persisted a second time is `KlaviyoDispatch.eventProperties.review_proof_button` (the full customer-facing URL, needed so **resend** can re-deliver the exact same link without ever re-deriving or re-exposing the token elsewhere) — see "Resend, retry, and supersession" below and the technical-debt entry for the tradeoff this accepts.
+
+### Customer-facing routes
+
+Three public routes, declared as siblings of the webhook routes in `app/routes.ts`, **outside** `layout("routes/app.tsx", ...)` — they never run through `requireStaffUser` or render inside the authenticated shell:
+
+- `GET /proof/:token` (`app/routes/proof.$token.tsx`) — the portal page. The loader **only ever reads**: it resolves the token and, if valid, loads a customer-safe projection (`app/domain/proofs/proof-portal-query.server.ts`) with no internal notes, due dates, priority, staff assignment, integration failures, Shopify raw data, activity history, or any other proof request. It never records a view.
+- `POST /proof/:token/respond` (`app/routes/proof.$token.respond.tsx`) — one action-only resource route handling three `_intent` values (`view`, `approve`, `requestChanges`), matching the internal drawer's own one-route-many-intents convention. React Router only ever invokes a route's `action` export for POST/PUT/PATCH/DELETE — a GET is routed to `loader` instead, which this module doesn't wire to any mutation at all, so **a GET can never approve, reject, or record a view** by construction, not just by convention.
+- `GET /proof/:token/asset/:assetId` (`app/routes/proof.$token.asset.$assetId.tsx`) — streams a proof-version's image/PDF bytes, scoped to versions that were genuinely part of this exact request's groups and were actually sent at some point (`requestLinks: { some: {} }`) — never any other version, group, order, or request, and never a still-internal draft.
+
+`headers()` on `proof.$token.tsx` sets `Cache-Control: private, no-store`, `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, and a same-origin-only Content-Security-Policy (`default-src 'self'`, no third-party scripts of any kind).
+
+### View tracking — a client event, never the GET itself
+
+`recordProofView` (`app/domain/proofs/record-proof-view.server.ts`) is called from the portal component's `useEffect` on mount, via a `POST .../respond` with `_intent: "view"` — **not** from the loader. A mail-security scanner that pre-fetches the link only ever issues a GET and never executes page JavaScript, so it cannot register a view under this design. The function is cheap to call repeatedly: only the *first* call transitions any `SENT` group/version to `VIEWED` and writes an `ActivityEvent`; every later call just bumps `lastViewedAt`/`viewCount`, so reopening the same link ten times produces one activity row, not ten.
+
+### Sending: validation, transaction, and delivery
+
+`sendProofRequest` (`app/domain/proofs/send-proof-request.server.ts`) validates, all at once and reported together (never partially-silent): order exists/not cancelled, usable customer email, every selected group exists on this order, is `REQUIRED`, has a linked line, isn't blocked by an open integration failure, and has a current version that's `READY_TO_SEND` with an uploaded file. One transaction then: creates `ProofRequest` + `ProofRequestGroup` rows, CAS-transitions every selected group/version `READY_TO_SEND → SENT` (rolling back the whole send if a concurrent action already moved one), writes a `proof_request_created` event plus one `proof_group_sent` event per group, queues a `KlaviyoDispatch` row, recalculates the order proof summary, and schedules the one automatic reminder. The Klaviyo delivery attempt itself happens **after** the transaction commits (no network calls inside a DB transaction) — a delivery failure is recorded on the dispatch/integration-failure rows but never rolls back the send, which has already genuinely happened from this app's side.
+
+### Approval and change-request
+
+`recordCustomerProofResponse` (`app/domain/proofs/record-customer-proof-response.server.ts`) is the single entry point for both. Order of checks: idempotency-key lookup first (a genuine resubmission returns `duplicate` immediately, no transaction needed) → resolve token → confirm the group is actually part of this request → confirm its linked version is still `SENT`/`VIEWED` (anything else — `APPROVED`, `CHANGES_REQUESTED`, `SUPERSEDED`, `CANCELLED` — is rejected as "no longer awaiting your response," which is exactly how an obsolete/already-resolved version is refused). Approval additionally requires `acknowledgedApproval === true` (the confirmation checkbox — page-open or link-click never counts). A change request requires written feedback or at least one uploaded file. Any file is validated by magic bytes (reusing `file-validation.ts` unchanged), stored under `customer-responses/${responseId}/…`, with checksum/original-filename/mimetype recorded.
+
+The actual state transition is a scoped `updateMany` on the version (`WHERE id = ? AND status IN (SENT, VIEWED)`) — this is the real concurrency guard: two racing submissions (approve vs. change-request, or two duplicate approvals) can't both win, because Postgres serializes the two transactions on that row and the loser's `updateMany` matches zero rows, converted to a clean rejection rather than a corrupted double-response. Only after that CAS succeeds is the `CustomerProofResponse` row created (with its own `idempotencyKey` unique constraint as a second, independent duplicate guard for the exact-same-request-retried case). Approving or rejecting one group **never** touches a sibling group in the same request — each group's version-status CAS and response row are entirely independent.
+
+Change-request responses additionally write a `Notification` for the group's assigned artwork staff member (skipped, not fabricated, if the group has no assignee) — but deliberately **do not** create the next proof version automatically; that remains a deliberate action by artwork staff in the existing Milestone 08 workflow.
+
+### Reopening an approved version — manual override
+
+`APPROVED` is a locked, terminal status once a customer response lands. `createProofVersion` (extended this milestone) still allows a new version to supersede one that's `SENT`/`VIEWED`/`CHANGES_REQUESTED` unconditionally (an ordinary next step), but superseding an `APPROVED` version requires a non-empty `overrideReason`, checked both before any storage write and again, re-authoritatively, inside the version-creation transaction (closing the race where a concurrent approval lands between the two checks). A successful override writes a `ManualOverride` row (`OverrideType.REOPEN_APPROVED_PROOF`) alongside the usual supersession `ActivityEvent`. The drawer's version-history UI only shows the "upload new version" form without an override-reason field when the current version isn't approved; once it is, the form requires the reason (and is hidden entirely from staff lacking `proof_responses.override`).
+
+### Partial responses and request completion
+
+A `ProofRequest` bundling several groups tracks completion as a derived fact, not a manually-set flag: after every response, the domain function checks every `ProofRequestGroup`'s linked version status across the whole request — if **all** have reached a terminal response (`APPROVED` or `CHANGES_REQUESTED` both count as "resolved," since a change request is still a genuine customer decision, just not an approval), the request becomes `COMPLETED`; if **some but not all** have, it's `PARTIALLY_RESPONDED`. One group requesting changes never blocks another group in the same request from being approved.
+
+### Resend, retry, and supersession
+
+Three distinct actions, deliberately not conflated:
+
+- **Resend** (`resendProofRequest`) reuses the *same* `ProofRequest` and the *same* token — it never creates a new request row. Since the raw token is never re-derivable from the stored hash, resend copies forward the exact `eventProperties` (including the already-correct review URL) from the request's original `KlaviyoDispatch` row into a **new** dispatch attempt with a fresh `idempotencyKey`, rather than needing the raw token again. Rejected if the request is revoked, completed, or expired — resend is for "the email might not have arrived," not a way to circumvent expiry/revocation.
+- **Retry** (`retryFailedKlaviyoDispatch`) re-attempts the *same* `KlaviyoDispatch` row that previously failed (reset `FAILED → QUEUED`, then dispatched again) — for genuine delivery failures, distinct from resend's "create a new delivery attempt" semantics.
+- **Supersession** happens implicitly: when staff create a new proof version for a group that's currently `SENT`/`VIEWED` (see "Reopening" above, minus the override requirement for non-approved statuses), the *old* version's status flips away from `SENT`/`VIEWED`, which is exactly the condition `recordCustomerProofResponse` checks — an old, still-open customer link for that group silently becomes non-actionable ("no longer awaiting your response... a newer version may now be available") without deleting anything. The customer portal's own query similarly reports a group as `"SUPERSEDED"` in this case.
+
+### Revocation and expiry
+
+`revokeProofRequest` requires a non-empty reason, records actor/timestamp, and only ever blocks *future* access to the token — it never changes `ProofGroup`/`ProofVersion` status (the group is still, honestly, "sent, awaiting a response" internally) and never undoes a `CustomerProofResponse` already recorded. The request row is never deleted. Expiry (`tokenExpiresAt`) is likewise never treated as license to delete anything — `resolveProofRequestByToken` just refuses to resolve it, and the customer sees a generic "this link is no longer valid" message that doesn't distinguish "not_found" from a still-existing-but-truly-random guess, though it *does* distinguish `expired`/`revoked` from `not_found` for the honest cases where the request genuinely exists.
+
+### Email delivery — Klaviyo, not a generic transactional-email adapter
+
+`app/adapters/klaviyo/klaviyo-client.server.ts` is a small, dependency-free client (`upsertKlaviyoProfile`, `trackKlaviyoEvent`) — not a generic multi-provider email abstraction, because Klaviyo's profile+event model doesn't map onto queued/sending/delivered/bounced the way a transactional-email API does (see the existing architecture-review decision that customer email is Klaviyo profile-upsert + custom-event-tracking, with the actual send owned by a Flow built in the Klaviyo UI, not by this app). `app/domain/proofs/dispatch-klaviyo-event.server.ts` is the one place that writes/updates `KlaviyoDispatch` rows and folds failures into the existing `IntegrationFailure`/`IntegrationAttempt` mechanism (`integration: EMAIL`), with the same exponential-backoff retry classification already established for Shopify integration failures — a permanently-invalid request (any 4xx other than 429) is never retried indefinitely; network errors, 5xx, and 429 are. **Only the HTTP status is ever recorded in `technicalDetail`** — never the request body, so a customer email address or a proof-review URL (which embeds the token) never reaches an `IntegrationFailure` row or a log line.
+
+Note for local development: without a real `KLAVIYO_API_KEY`, every dispatch attempt genuinely fails (a real network call to Klaviyo's API, rejected). This is expected, not a bug — the seed script's own comments call this out, and it doubles as an honest demonstration of the "email delivery failure" scenario rather than something faked separately.
+
+### The one automatic reminder
+
+`scheduleProofReminder` is called once, inside `sendProofRequest`'s own transaction — the `@@unique([proofRequestId])` constraint on `ProofReminder` is what actually *guarantees* "at most one reminder per request," not application logic alone. `scheduledFor` defaults to `now + PROOF_REMINDER_DELAY_DAYS` (env var, default **3 days**). `dispatchDueProofReminders` (polled every 30s alongside the existing Shopify sync-job drain in `app/lib/job-poller.server.ts`) picks up due, unsent, unsuppressed reminders and — for each — silently skips (no DB write at all) if the request is completed, revoked, expired, the order is cancelled, or every included group has already reached a terminal response; otherwise it creates a new `PROOF_REMINDER`-type `KlaviyoDispatch` (reusing the original review URL, same as resend) and marks the reminder sent inside one transaction, so a second concurrent poller tick or a same-tick staff suppression attempt loses the race cleanly (`ReminderAlreadyResolvedError`, caught and treated as a silent skip). `suppressProofReminder` requires a reason and only succeeds before the reminder has been sent; it never revokes the request itself.
+
+"Cancelled" isn't a separate stored reminder state — a reminder that becomes moot before it's due is just silently skipped by the poller each tick it's checked, deriving "is this still eligible" from the request/order's own live status rather than duplicating that fact onto the reminder row (see the technical-debt entry on this tradeoff).
+
+### Order-level proof summary — new customer states
+
+`calculateOrderProofSummary` (`app/domain/proofs/order-proof-summary.ts`) gained three new boolean inputs (`isWaitingOnCustomer`, `isApproved`, `isChangesRequested`, each derived from a group's live status) and a precedence cascade, evaluated in this order: `BLOCKED` (integration failure) → `CHANGES_REQUESTED` (any required group awaiting-changes — reported distinctly from `BLOCKED`, since whose action is needed next differs) → `ALL_REQUIRED_PROOFS_APPROVED` → `PARTIALLY_APPROVED` (some but not all approved) → `READY_TO_SEND` → `WAITING_ON_CUSTOMER` (sent/viewed, no response yet) → `PROOFS_IN_PROGRESS` → `PROOFS_NOT_STARTED`. As before, this is never hand-set — `recalculateOrderProofSummary` is called at the end of every proof-domain mutation, inside the same transaction, and is a no-op if the recalculated value already matches what's stored.
+
+### Kanban integration
+
+`isWaitingOnCustomer`/`hasCustomerResponseAlert`/`isApprovedNotExported` on `BoardCard` were reserved fields from Milestones 06B/07, computed from `proofSummary`/`workflowStatus` but structurally unreachable before this milestone — they now become genuinely meaningful without any change to that computation. New this milestone: `hasFailedProofDelivery`, computed the same batched, no-N+1 way as the existing blocked-proof-group indicator (`loadFailedDeliveryOrderIds` — one query per board load, `IntegrationFailure` rows scoped by `relatedOrderId`+`integration: EMAIL`, not per-card). The board never loads full proof-request or response histories — only these small pre-computed booleans/counts, and customer comments are never shown on a card (only in the drawer, behind `proof_responses.view`).
+
+### Permissions
+
+`proof_requests.create/view/resend/revoke`, `proof_responses.view/override`, `proof_reminders.manage` — granted identically to Manager and Artwork Staff (matching every prior milestone's precedent), view-only (`proof_requests.view`/`proof_responses.view`) to Print Staff, nothing to Packing Staff. The customer portal itself is gated purely by token possession — it never consults `StaffUser`/`Role`/RBAC at all.
+
+### Security summary
+
+Cryptographically secure tokens (256-bit), hashed at rest, expiring, revocable; every internal mutation checked server-side (hiding a button is never the enforcement boundary); `noindex`/`no-store`/`no-referrer`/same-origin-only CSP on every public page; no third-party scripts; uploads validated by content, not extension or claimed MIME type; storage keys always server-generated; authorization on every asset-preview route scoped to the exact request/version relationship, not the raw ID alone; rate limiting is intentionally out of scope this milestone (see technical debt) — see [ADR-0005](decisions/0005-proof-request-bundling.md) for the schema-level threat-model reasoning.
+
+### Deferred to later milestones
+
+- Export-for-print, production-artwork export, the production queue, warehouse picking, packing, Starshipit, returns.
+- A full customer-account proof-history page / Shopify Customer Account Extension (the SRS's own "recommended initial release uses secure tokenised proof pages" note; the account extension is explicitly a later addition).
+- Real-time cross-staff synchronisation — same limitation as the board and drawer.
+- Quick-assign from Kanban, general note editing/removal.
+- On-hold/cancelled/archived order reactivation.
+- Repeated/multi-step automated reminder sequences — this milestone is one reminder, ever, per request; additional reminders remain a manual staff action.
+
+## Export for print and production artwork (Milestone 10)
+
+Milestone 09 got a proof genuinely approved (or legitimately marked no-proof-required); this milestone is the controlled handoff from that resolution into production-ready artwork. It's deliberately narrow: preparing, validating, and exporting production files for proof groups that are already resolved — never the production queue, warehouse, picking, packing, Starshipit, returns, or real-time cross-staff sync that come later.
+
+### Domain model — ProductionArtwork, ExportBatch, ExportBatchItem
+
+The architecture review's original placeholder, `ProductionExport` (a single flat row per export, with a **required** `proofVersionId`), had zero rows and zero application references by the time this milestone started, and structurally couldn't represent the no-proof-required export path. [ADR-0006](decisions/0006-production-artwork-export-model.md) replaces it with three models:
+
+- **`ProductionArtwork`** — one row per revision of the production-ready file for a group. `sourceProofVersionId` (nullable) and `sourceNoProofReasonSnapshot` (nullable `NoProofReason`) together represent whichever of the two eligibility paths produced it, without forcing one to be present. `revisionNumber` (`@@unique([proofGroupId, revisionNumber])`, same read-latest-inside-transaction-plus-retry pattern as `ProofVersion.versionNumber`) means every prior revision is superseded, never overwritten — except an `EXPORTED` revision, which is permanent, immutable history and can never be superseded or cancelled. `status` is `DRAFT | VALIDATION_FAILED | READY_FOR_EXPORT | EXPORTED | SUPERSEDED | CANCELLED`. The long list of requested production metadata (print dimensions, colour counts, thread/print colours, underbase/white-ink/mirroring/cut-path flags, machine notes, orientation) is folded into one `productionMetadata: Json?` column — matching the codebase's existing convention (`ActivityEvent.metadata`, `KlaviyoDispatch.eventProperties`) for structured-but-never-individually-queried data. `decorationMethod`/`placement` stay real columns because validation and the export manifest branch on them directly.
+- **`ProductionArtworkOrderLine`** — join table allocating a revision to specific order lines with quantities, mirroring `ProofGroupOrderLine`'s existing shape.
+- **`ExportBatch`** — the dedicated, audited export-for-print action itself, scoped to one order (`batchNumber` sequential per order, same transactional-retry pattern), with its own `idempotencyKey` (unique) so a duplicate submission can never produce two packages. `status` is `PREPARING | READY | EXPORTED | FAILED | SUPERSEDED | CANCELLED` — `PREPARING`/`FAILED` are genuinely reachable, not just reserved (see "Two-phase export" below). `previousBatchId`/`reexportReason` record re-export lineage explicitly.
+- **`ExportBatchItem`** — an immutable per-group snapshot inside a batch: exactly which `ProductionArtwork` and which exact source (`sourceProofVersionId`/`sourceProofVersionNumber` or `sourceNoProofReasonSnapshot`) was actually included, plus a decoration/placement snapshot. This is a point-in-time snapshot, not a live join — a later edit to the group or artwork can never rewrite what a past export historically contained.
+
+### Eligibility — the only two ways in
+
+`app/domain/production/eligibility.ts`'s `evaluateProductionArtworkEligibility` is the one place this is decided: a group is eligible to start a new production-artwork revision only when its *current* proof version is genuinely `APPROVED`, or the group is legitimately `NO_PROOF_REQUIRED` with a documented reason already recorded. `READY_FOR_EXPORT`/`EXPORTED_FOR_PRINT` group statuses are also accepted as starting points — preparing a corrected revision after the group already progressed further starts from the same underlying approved/no-proof-required fact that got it there. `evaluateReadyForExportEligibility` gates the "mark ready for export" transition (validated, has a stored file, has at least one order-line allocation). `evaluateExportBatchItemEligibility` gates actual inclusion in an export batch, and is re-checked live at export time (not just trusted from whatever the UI last showed) — including whether the source proof version, if there is one, is *still* approved right now, since a concurrent reopen/override could have happened since the artwork was prepared.
+
+### File validation — a much wider, and partly untrusted, format set
+
+`app/domain/production/file-validation.ts` accepts PDF, PNG, TIFF, SVG, EPS, AI, and EMB — a materially wider set than the customer-facing proof file validator, since production files are prepared by staff for a print/embroidery vendor, never reviewed by a customer. Every format except EMB is verified by real content (magic bytes for PDF/PNG/TIFF, an XML-markup scan for SVG, a PostScript-header check for EPS, and an "Adobe Illustrator" creator-comment scan distinguishing AI from a plain PDF/EPS container). **EMB is the one deliberate exception**: embroidery digitising formats are a loose, proprietary, vendor-specific family with no single reliable public signature, so a declared `.emb` extension is trusted directly rather than rejecting a legitimate file the validator simply can't verify — see the technical-debt entry for this tradeoff. `isPreviewable` (true only for PDF/PNG/SVG) never gates acceptance, only whether the UI offers an inline preview versus a download-only link.
+
+### Production artwork actions
+
+`app/domain/production/create-production-artwork.server.ts` re-checks eligibility, validates the file, computes and stores validation status/messages at creation time (via `validateProductionArtworkMetadata` — currently just "placement is required unless the decoration method is UNPRINTED," the one rule this domain has real confidence about; dimension/colour-mode/resolution mismatches are surfaced as informational metadata, never a rejection), then creates the next revision inside a retry-on-conflict transaction that supersedes the prior non-terminal revision (never an `EXPORTED` one) and carries forward its order-line allocations as a starting point. `update-production-artwork.server.ts`, `allocate-production-artwork-order-lines.server.ts`, `mark-production-artwork-ready.server.ts`, and `cancel-production-artwork.server.ts` round out the CRUD — each following the same CAS-transition-plus-`ActivityEvent` pattern established in Milestone 08. Marking a revision ready promotes the *group's* status to `READY_FOR_EXPORT` too (including from `EXPORTED_FOR_PRINT`, when a correction is prepared after the group's prior revision was already exported); cancelling the revision that drove that promotion reverts the group back to `APPROVED`/`NO_PROOF_REQUIRED` rather than leaving it stuck at `READY_FOR_EXPORT` with no active artwork.
+
+### Two-phase export batch creation
+
+`createExportBatch` (`app/domain/production/create-export-batch.server.ts`) is a dedicated, audited server action — never represented by dragging a Kanban card, and the board's own "Exported for Print" column has been non-interactive since Milestone 06B specifically so this couldn't happen by accident. It runs in two phases, deliberately never holding a database transaction open across file I/O:
+
+1. **Reserve** — after validating every requested group's eligibility, a new `ExportBatch` row is created immediately in `PREPARING` status, with its real `batchNumber` and `idempotencyKey` already committed. This is what makes a failed attempt a permanent, visible audit record (`FAILED`, with a reason) rather than a silently discarded number.
+2. **Build, then finalise** — the manifest (now that the real batch number is known) and the ZIP package (via `yazl`) are built entirely in memory and written to storage; only then does a short finalisation transaction re-verify every item's eligibility *right now* via a scoped `updateMany` CAS (catching a concurrent cancellation or reopened approval that landed since phase 1), flip the artwork to `EXPORTED` and the group to `EXPORTED_FOR_PRINT`, create the `ExportBatchItem` rows, and recalculate the order's proof summary and workflow status. If the CAS check fails for any item, the whole batch is marked `FAILED` with a specific reason and nothing is applied — proven directly by an integration test that fires two concurrent export attempts at the same group and asserts exactly one succeeds.
+
+`reExportBatch` is a thin wrapper that makes the reason a required field at the type level (not just a runtime check) and links the new batch to the order's most recent `EXPORTED` batch via `previousBatchId`.
+
+### Export manifest and package — what's in, what's deliberately excluded
+
+`app/domain/production/export-manifest.ts` builds a plain, JSON-serialisable manifest (Australian `DD/MM/YYYY HH:mm` dates, metric millimetre dimensions where the group recorded them) that becomes both `ExportBatch.manifestSnapshot` and the package's `manifest.json`. It never includes customer mark-ups, raw Shopify payloads, unrelated internal notes, secure tokens, or secrets — only what's genuinely needed for production (group name, decoration method, placement, dimensions, source, the artwork file's own metadata, and order-line allocations). `buildArchiveFilename` guarantees every file lands at a safe, collision-resistant `artwork/…` path — no path separator from a staff-chosen group name can survive into the archive entry name. `app/domain/production/export-package.server.ts` streams the manifest plus every included artwork file's bytes (read from storage, never re-derived) into a single in-memory ZIP via `yazl`, then computes its checksum — an old package is never regenerated or mutated once written; a re-export always produces a brand-new package under a fresh storage key.
+
+### Order-level export summary and Kanban integration
+
+`calculateOrderProofSummary` (`app/domain/proofs/order-proof-summary.ts`) gained the two export-stage buckets the schema had already reserved since Milestone 09: `ALL_REQUIRED_PROOFS_EXPORTED` (every required group's current status is `EXPORTED_FOR_PRINT`) and `PARTIALLY_EXPORTED` (some but not all), both evaluated *before* the approved-state checks — an exported group is further along than a merely-approved one, never a regression from it. There's no separate "ready for export, not yet exported" order-level bucket; that intermediate step is only visible at the individual `ProofGroup.status` level. On the board, `hasMissingProductionArtwork` and `hasReexportRequired` are new `BoardCard` booleans computed the same batched, no-N+1 way as every prior board indicator (`loadMissingProductionArtworkOrderIds`/`loadReexportRequiredOrderIds` — one query each per board load, never per-card): the former flags an `APPROVED`/`NO_PROOF_REQUIRED` group with no production artwork prepared at all yet; the latter flags a `READY_FOR_EXPORT` group that also has a prior `EXPORTED` revision, meaning a correction was prepared and marked ready after the group's original export. `ShopifyOrder.workflowStatus` only ever moves into `PARTIALLY_EXPORTED`/`EXPORTED_FOR_PRINT` as a direct consequence of a real export happening inside `createExportBatch`'s own finalisation transaction — order-level export readiness is derived from that one real event, never hand-set from the board.
+
+### Routes and drawer UI
+
+`orders/:orderId/production-artwork` (`app/routes/orders.$orderId.production-artwork.tsx`) is an action-only resource route, mirroring `orders.$orderId.proof-groups.tsx`'s one-route-many-intents convention (`createProductionArtwork`, `updateProductionArtwork`, `setProductionArtworkOrderLines`, `markProductionArtworkReady`, `cancelProductionArtwork`, `createExportBatch`, `reExportBatch`). Two new authenticated, authorization-checked download/preview routes follow the existing `proof-assets/:assetId` precedent exactly: `production-artwork/:productionArtworkId/file` (inline for previewable kinds, `attachment` otherwise) and `export-batches/:exportBatchId/package` (always `attachment`, and records the download — informational count only, see the technical-debt entry). The order drawer gains a new "Production Artwork" tab (`app/components/order-drawer/production/`): a per-group `ProductionArtworkSection` (revision history, upload, order-line allocation, mark-ready, cancel) for every export-eligible group, plus an order-level `ExportBatchSection` (batch history, create-export-batch, re-export, download).
+
+### Permissions
+
+`production_artwork.view/create/upload/update/cancel` and `production_exports.create/view/download/reexport/override` — granted in full to Manager and Artwork Staff (matching every prior milestone's precedent for who prepares artwork), view/download-only (`production_artwork.view`, `production_exports.view/download`) to Print Staff, nothing to Packing Staff. `production_exports.override` is seeded but not yet wired to any code path — it's reserved for a future administrative bypass via the existing `ManualOverride`/`OverrideType.EXPORT_WITHOUT_APPROVAL` framework, not implemented this milestone since no genuine business need for it surfaced in the SRS.
+
+### Deferred to later milestones
+
+- The full production queue, warehouse picking, packing, Starshipit, returns.
+- Real-time cross-staff synchronisation — same limitation as the board and drawer since Milestone 06B.
+- Customer notification of export/production status — the SRS doesn't define this clearly enough to implement a real send; the event (`export_batch_exported`) and extension point exist, automatic customer-facing notification does not.
+- Multi-order export batches — an `ExportBatch` is always scoped to exactly one order.
+- `production_exports.override` — seeded, not yet wired to a bypass action.
+- `IN_PRODUCTION` and every `OrderStatus` value after it remain reserved and unreachable — this milestone only ever writes as far as `EXPORTED_FOR_PRINT`.
+
+## Production queue and workstation workflow (Milestone 11)
+
+Milestone 10 produced an immutable, exported record of exactly what's ready to be produced. This milestone turns that record into trackable, staff-facing production work — a queue, job/task lifecycle, assignment, quantity tracking, quality checks, issues, and completion — without ever letting production drift from the exact artwork/allocation that was actually exported. Deliberately narrow: no warehouse picking, bin locations, barcode scanning, packing, freight labels, Starshipit, customer shipping notifications, returns, reprint claims, purchasing, inventory forecasting, or machine-scheduling optimisation.
+
+### Domain model — ProductionJob, ProductionTask, and four supporting models
+
+[ADR-0007](decisions/0007-production-queue-workstation-model.md) covers the full reasoning; in summary:
+
+- **`ProductionJob`** — one row per `(ExportBatch, decorationMethod)` pair (`@@unique([exportBatchId, decorationMethod])` — the job-level idempotency guard). Sequential `jobNumber` per order, same transactional-retry pattern as `ExportBatch.batchNumber`/`ProofVersion.versionNumber`. Groups by the **existing** 5-value `DecorationMethod` enum rather than a new "workstream" taxonomy — `DECORATION_WORKSTREAM_LABELS` in `app/domain/production/labels.ts` supplies human-facing names centrally instead.
+- **`ProductionTask`** — one row per `ExportBatchItem` by default (`@@unique([exportBatchItemId])` — the task-level idempotency guard). `productionArtworkId`/`exportBatchItemId` are fixed at creation and never repointed, so a later artwork revision or re-export can never mutate a historical task. `taskType` defaults to `GENERAL` for every auto-created task — schema-ready for real multi-step decomposition (`sequenceOrder`/`dependsOnTaskId`) but never fabricated ahead of genuine need (technical-debt item 24).
+- **`ProductionQuantityUpdate`** — append-only log, one row per quantity submission, `@@unique([productionTaskId, idempotencyKey])` — the real DB-enforced duplicate-submission guard.
+- **`ProductionQualityCheck`** — append-only log, one row per check attempt, never edited or overwritten by a later pass.
+- **`ProductionIssue`** — never hard-deleted; `proofGroupId`/`productionArtworkId` are loose snapshot references (no FK), matching `IntegrationFailure`'s existing precedent.
+- **`ProductionNote`** — mirrors `ProofNote`'s exact shape/policy at production scope.
+
+`ShopifyOrder.productionSummary` (`OrderProductionSummary`) is a **second, independent** rollup alongside `proofSummary` — an order can be fully proofed-and-exported while production hasn't started, or production-complete while a later reprint reopens proofing.
+
+### Job/task status is derived, never hand-set
+
+Mirrors `recalculateOrderProofSummary`'s established convention exactly. `app/domain/production/task-state-machine.ts` centralises every task transition rule (`canStartTask`, `canPauseTask`, `canResumeTask`, `canBlockTask`, `canUnblockTask`, `evaluateTaskCompletionEligibility`) plus `deriveTaskWorkingStatus` — the status a task returns to once unblocked or reopened, computed from its own quantities rather than stored as a separate "previous status" column. `app/domain/production/job-state-machine.ts`'s `deriveProductionJobStatus` derives a job's status from its non-cancelled tasks (precedence: any blocked → `BLOCKED`; all complete → `COMPLETE`; all complete-or-awaiting-QC → `AWAITING_QUALITY_CHECK`; any in-progress → `IN_PROGRESS`; any paused → `PAUSED`; any other active mix → `IN_PROGRESS`; else → `QUEUED`). `app/domain/production/order-production-summary.ts`'s `calculateOrderProductionSummary` rolls up from **tasks**, not jobs, across all non-cancelled jobs on the order, since `ProductionJobStatus` has no "partially complete" bucket but the order level needs one. `app/domain/production/recalculate.server.ts` is the one writer of both `ProductionJob.status` and `ShopifyOrder.productionSummary` — every mutating action calls it inside its own transaction; no action ever writes either field directly.
+
+### Job/task creation from export batches
+
+`app/domain/production/create-production-jobs.server.ts`'s `createProductionJobsFromExportBatch` is the one place jobs/tasks are created — always from an `EXPORTED` batch, never from "whatever the proof group's latest artwork is now." It's auto-invoked as a follow-up right after a successful `createExportBatch` (awaited, but wrapped in its own try/catch so a failure creating jobs can never be reported back as an export failure — the export itself already genuinely happened), and independently re-triggerable by staff via the same idempotent function for recovery. Idempotency comes from the two real unique constraints above, not a separate dedup mechanism — a concurrent or retried call for the same batch just returns `already_exists`/no-op rows via catch-and-refetch-on-violation (the same pattern as `createVersionWithRetry`/`createArtworkRevisionWithRetry` from Milestones 08/10). A pending export-batch item with zero allocated quantity is skipped rather than creating a task with a trivially-satisfied required quantity of zero.
+
+### Quantity tracking and rework
+
+`app/domain/production/quantity-validation.ts`'s `validateQuantityUpdate` is the single source of truth: `completedQuantity + failedQuantity` never exceeds `requiredQuantity` without a documented override; `reworkedQuantity` can never exceed the task's current `failedQuantity`. `failedQuantity` is a **net currently-pending** count, not a historical cumulative counter — a quality-check failure moves units from `completedQuantity` into it (recategorising, not double-counting), and a successful rework (via `recordProductionQuantity`'s `reworkedQuantity` parameter) moves them back and increments the separate, never-decremented historical `reworkQuantity` counter. `requiredQuantity` is never reduced by a failure or rework. `app/domain/production/record-production-quantity.server.ts` pre-checks the `ProductionQuantityUpdate` unique constraint for idempotency before doing any work, transactionally creates the log row, updates the task's running quantities/status, conditionally records a `ManualOverride(OVERRIDE_PRODUCTION_QUANTITY)` row when a documented override was used, and recalculates job/order state — catching a genuine concurrent-race unique violation as a duplicate, not an error.
+
+### Quality checks and the rework loop
+
+`app/domain/production/quality-checklist.ts`'s `getQualityChecklist` centralises a base checklist (correct artwork/placement/size/garment, no visible damage, correct quantity) plus method-specific additions (colours + print quality for DTF/screen print; thread colours + embroidery quality for embroidery) — never one universal checklist forced onto materially different methods. `requiresQualityCheck` is a single named decision point (currently true for every method, including unprinted garments) rather than assumption embedded elsewhere. `app/domain/production/perform-quality-check.server.ts` creates an append-only `ProductionQualityCheck` row every time, recategorises failed units from completed into failed, and — when rework is required — auto-creates a non-blocking `ProductionIssue` (`QUANTITY_DISCREPANCY`) documenting the exact rework need. A failed check is never edited or deleted, even after the same units are later successfully reworked.
+
+### Assignment, blocking, and pause/resume
+
+`app/domain/production/assign-production-task.server.ts` provides both task-level (`assignProductionTask`) and job-level (`assignProductionJob`) assignment — deliberately separate from the order's own ARTWORK/PRODUCTION assignment slots and the proof group's own `assignedStaffId`. Both use a `version` optimistic-concurrency CAS (not an expected-staff-id CAS) since assignment/priority/due-date edits have no natural expected-status field to compare against; status transitions continue the established scoped-`updateMany`-on-expected-status pattern and bump `version` at the same time. `app/domain/production/task-lifecycle.server.ts` provides `startProductionTask`/`pauseProductionTask`/`resumeProductionTask` — start validates the order isn't cancelled, the job isn't cancelled, and no open blocking issue exists; pause requires a valid reason via `app/domain/production/pause-reason.ts` (a fixed vocabulary — `OTHER` requires accompanying free text, every other code stores its own fixed label rather than raw free text); resume computes the paused duration and accumulates it into `totalPausedDurationMs`. `app/domain/production/production-issue.server.ts`'s `createProductionIssue` moves **only the task the issue is scoped to** into `BLOCKED` when `isBlocking` is set — never a sibling task on the same job; `resolveProductionIssue` returns the task to its derived working status (via `deriveTaskWorkingStatus`) once no other open blocking issues remain on it.
+
+### Completion and reopening
+
+`app/domain/production/complete-production-task.server.ts`'s `completeProductionTask` completes exactly one task, gated by `evaluateTaskCompletionEligibility` (not terminal, no open blocking issue, required quantity fully attempted, all produced units quality-approved). **A production job is never completed by a direct action of its own** — `recalculateProductionJobStatus` derives `COMPLETE` automatically once every one of its non-cancelled tasks reaches that status. Completing a task never touches `ShopifyOrder.workflowStatus` — production completion must never imply packing/fulfilment. `cancelProductionTask` administratively closes a task as `CANCELLED` or `FAILED` (via a `markFailed` flag, one function rather than two near-identical ones) without affecting any sibling task. `app/domain/production/reopen-production-task.server.ts`'s `reopenProductionTask` only works from `COMPLETE`, requires a non-empty reason, records a `ManualOverride(REOPEN_COMPLETED_PRODUCTION)` preserving the original completion record (`previousValue: {status: "COMPLETE", completedAt}` — never erased), and derives the new working status from the task's own quantities rather than a stored "previous status."
+
+### Production queue — filtering, sorting, and the workstation drawer
+
+`app/domain/production/queue-filters.ts` centralises the URL-param vocabulary (9 named preset views — all active, assigned to me, unassigned, due today, overdue, urgent, blocked, awaiting quality check, completed recently; 8 sort fields) with parse/serialise functions mirroring the Kanban board's own `board-filters.ts` precedent exactly. `app/domain/production/queue-query.server.ts`'s `loadProductionQueue` batches staff-name resolution and open-issue lookups once per page load (never per-card), and its default "priority" sort implements the milestone's exact precedence: urgent → high priority → overdue → earliest due date → oldest queued. `/production` (`app/routes/production.tsx` + `ProductionQueuePage`) is the queue screen; `/production/:jobId` (`app/routes/production.$jobId.tsx` + `ProductionJobDrawer`, rendered via the parent route's `<Outlet />` exactly like the order drawer) is the full workstation view — tasks, quantities, quality checks, issues, notes, and activity, with every task-level action (`ProductionTaskCard`) gated by its own permission boolean. `/production/actions` is a single action-only resource route, one-route-many-intents, matching `orders.$orderId.proof-groups.tsx`'s convention. Saved views are **not** reused for the production queue — see technical-debt item 27; URL-persisted filters serve as the de facto shareable-view mechanism.
+
+### Order drawer, Kanban, and dashboard integration
+
+The order drawer's Production tab gained a read-only "Production jobs" section (`app/domain/production/production-job-order-query.server.ts`'s `loadProductionJobsForOrder`) linking out to the full `/production/:jobId` workstation — deliberately no task/issue editing duplicated inline. The Kanban board gained three new batched, no-N+1 `BoardCard` fields: `productionSummary` (a direct column, no extra query), `hasOpenProductionIssue` (one batched `ProductionIssue` query per board load, same pattern as `loadMissingProductionArtworkOrderIds`), and `productionAssignedStaffName` (read directly from the order's already-selected `assignments` relation — no extra query at all). The dashboard (`app/domain/production/dashboard-metrics.server.ts`) shows real counts only (queued/in-progress/overdue/blocked/awaiting-QC/completed-today/remaining-quantity) — no invented targets or percentages. Basic reporting (`app/domain/production/report.server.ts`, `/production/report`) computes jobs created/completed by date range, average lead time, work by decoration method, and quantity produced/failed/reworked from the append-only `ProductionQuantityUpdate` log (the real historical record, not tasks' current running totals which rework can legitimately move around after the fact) — advanced productivity scoring is explicitly deferred.
+
+### Permissions
+
+`production_queue.view`, `production_jobs.create/view/assign/update/start/pause/complete/reopen`, `production_quantities.update`, `production_quality_check.perform`, `production_issues.create/resolve`, `production_notes.create`, `production_overrides.create` — granted in full to Manager. Artwork Staff get view-only access (`production_queue.view`, `production_jobs.view`) plus `production_issues.create`, deliberately **not** any completion/start permission — artwork staff can see production state and respond to artwork-related issues but never automatically gain the ability to run production. The milestone's suggested "Production" role maps onto the existing `PRINT_STAFF` role (documented in `prisma/seed.ts`) rather than inventing a sixth `StaffUser` role, since this shop's floor-work role already matches `AssignmentRole.PRODUCTION`'s reserved meaning — granted queue/job view, assign, start/pause/complete, quantities, quality checks, issue creation, and notes, but deliberately not job creation, reopening, issue resolution, or quantity overrides. Packing Staff get read-only `production_queue.view`/`production_jobs.view` and nothing else.
+
+### Concurrency and idempotency
+
+Every guarantee is backed by a real DB constraint, not an application-level check alone: `@@unique([exportBatchId, decorationMethod])` for job creation, `@@unique([exportBatchItemId])` for task creation, `@@unique([productionTaskId, idempotencyKey])` for quantity submissions. Status transitions use scoped `updateMany` on an expected-status/expected-version WHERE clause (the established CAS pattern from every prior milestone); a duplicate start/pause/resume returns `already_there` rather than creating a second activity event or transition.
+
+### Deferred to later milestones
+
+- Warehouse stock picking, bin locations, full barcode scanning, packing, freight labels, Starshipit, customer shipping notifications, returns, customer reprint claims.
+- Purchasing, inventory forecasting, machine-scheduling optimisation, automatic workload balancing.
+- Real-time cross-staff synchronisation — same limitation as every prior milestone's screens.
+- Quick-assign from the Kanban card itself (assignment happens in the queue/drawer only).
+- General note editing/deletion (create-only, matching every prior note-scope precedent).
+- Cancelled/archived order reactivation.
+- Genuine multi-step task decomposition (`sequenceOrder`/`dependsOnTaskId` exist but are unenforced — technical-debt item 24).
+- A `Team`/roster model for `ProductionJob.assignedTeam` (currently free text — technical-debt item 25).
+- Saved views for the production queue (technical-debt item 27).
+- Shopify Customer Account Extension / any customer-facing production-status surface.
+
+## Starshipit freight labels (Milestone 12)
+
+Milestone 11 gets an order to `productionSummary === "COMPLETE"`, but nothing yet gets a freight label or leaves the building. This milestone adds a staff-triggered action that calls the real Starshipit API to create a shipment, print a label, and return a tracking number — then writes that tracking number back to Shopify. It is also the **first Shopify write** this app has ever made; every prior milestone (04–11) only ever read from Shopify. Deliberately narrow, per the user's own scoping decisions: no packing gate, no warehouse/picking model, no label voiding, no customer shipping notifications, no returns/reprint-claim handling.
+
+### No packing gate — the one real gate is production completion
+
+There is no `Packing`/`Fulfillment` model this milestone. `app/domain/freight/freight-eligibility.ts`'s `evaluateFreightShipmentEligibility` (pure) checks only: the order isn't cancelled, `productionSummary === "COMPLETE"`, and no existing active (`PREPARING`/`CREATED`) shipment already exists for the order. "Create freight label" becomes available in the order drawer once production is complete, gated only by the `freight_shipments.create` permission — staff are trusted to click it once the order is genuinely, physically packed. See [ADR-0008](decisions/0008-starshipit-freight-integration.md) for the full reasoning.
+
+### `FreightShipment` — reserve-then-finalise, reusing Milestone 10's own shape
+
+`FreightShipment` (`FreightShipmentStatus`: `PREPARING`/`CREATED`/`FAILED`/`CANCELLED`) follows `createExportBatch`'s exact three-phase pattern. `app/domain/freight/create-freight-shipment.server.ts`'s `createFreightShipment`: (1) an early idempotency-key lookup returns the existing row on a duplicate submission; reserves a `PREPARING` row (carrier code, service code, optional packaging preset, all staff-entered free text) before any external I/O; (2) calls the real Starshipit API — `app/adapters/starshipit/starshipit-client.server.ts`'s `createStarshipitOrder` then `printStarshipitLabel` — entirely outside any DB transaction, decodes the returned base64 label PDF, stores it via the existing `StorageAdapter` (`freight-shipments/:orderId/:uuid.pdf`), and computes its checksum; any failure here CAS-updates the row straight to `FAILED` with a reason (`failFreightShipment`, mirroring `failExportBatch`) and returns a rejected outcome — production/order state is never touched; (3) a CAS `updateMany` (`where: {id, status: "PREPARING"}`) finalisation update writes the tracking number, carrier name, and label storage key, then an `ActivityEvent`. There is no `@@unique([orderId])` — an order could in principle have more than one shipment (a split shipment) — "at most one active shipment" is an application-level rule enforced inside eligibility, the same way `ExportBatch` enforces its own sequencing without a hard constraint for that specific rule. `app/domain/freight/parse-shipping-address.ts`'s `buildStarshipitDestination` validates the order's Shopify shipping address has everything Starshipit's destination object needs (street/city/postcode/country) before any API call is attempted, falling back to the order's customer name when the address itself has none.
+
+### Carrier, service level, and packaging preset are free text
+
+Starshipit's public API reference has no confirmed discovery endpoint for an account's actual configured carriers, service levels, or parcel presets — these are account-specific and already configured on Starshipit's own side. Staff enter `carrierCode`/`carrierServiceCode` (both required; the UI defaults the service field to "Standard" per the user's own confirmation) and an optional `packagingPresetName` — omitting it lets Starshipit apply its own account default parcel size. Starshipit's own API is the validator for an invalid combination, not a client-side guess (technical-debt item 31).
+
+### The Shopify write-back — a separate, independently-failable step
+
+`app/domain/freight/sync-tracking-to-shopify.server.ts`'s `syncFreightTrackingToShopify` is the app's first-ever Shopify GraphQL **mutation**, and deliberately never runs inside the same transaction or success path as shipment creation — a downstream Shopify failure must never undo a shipment that already genuinely happened with the carrier, the same principle as Milestone 11's own export→job-creation precedent. It's a two-step call: query `order(id).fulfillmentOrders.nodes{id, status}` for an `OPEN` fulfillment order, then `fulfillmentCreate(fulfillment: {trackingInfo: {number, company, url}, notifyCustomer: false, lineItemsByFulfillmentOrder: [{fulfillmentOrderId}]})`. On success, a transaction sets `FreightShipment.shopifyFulfillmentId` and advances `ShopifyOrder.workflowStatus` to `FULFILLED` (an enum value reserved since the Milestone 06B board-column work, unreachable until now) together, then calls `recordIntegrationSuccessAfterFailure`. On any failure — no open fulfillment order, Shopify `userErrors`, a thrown `ShopifyGraphQLError`, or any other unexpected error — it records via the **pre-existing** `IntegrationFailure`/`IntegrationType.STARSHIPIT` mechanism (reserved in the schema since Milestone 02) with action `"freight_tracking_sync"`, and never throws under normal operation. This means the existing `/integrations` queue and header badge (`IntegrationIssueIndicator`) pick up freight sync failures automatically — zero new UI, since both already query by the shared `IntegrationType`/`OPEN_STATUSES` contract. A staff "Retry Shopify sync" action in the drawer re-invokes the same function for a `CREATED` shipment whose `shopifyFulfillmentId` is still null. `notifyCustomer: false` is deliberate and permanent — customer shipping notifications are explicitly out of scope, the same exclusion carried since Milestones 09–11.
+
+### Cancellation is internal-only
+
+`app/domain/freight/cancel-freight-shipment.server.ts`'s `cancelFreightShipment` is a record-correction only (`status → CANCELLED`, requires a non-blank reason, CAS-updates from `PREPARING`/`CREATED`/`FAILED`) and never calls a Starshipit void/cancel API — no such endpoint is confirmed in the public reference this milestone (technical-debt item 29). Voiding the actual label with the carrier remains a manual process outside the Hub.
+
+### Routes, drawer UI, and Kanban integration
+
+`orders/:orderId/freight` (`app/routes/orders.$orderId.freight.tsx`) is an action-only resource route, one-route-many-intents (`createFreightShipment`, `cancelFreightShipment`, `retryShopifySync`), mirroring `orders.$orderId.production-artwork.tsx`'s convention exactly. `freight-shipments/:freightShipmentId/label` (`app/routes/freight-shipments.$freightShipmentId.label.tsx`) is the label download route, mirroring the export-package download route's precedent (permission check, `Content-Type: application/pdf`, `Content-Disposition: attachment`, informational download-count increment). The order drawer gained a "Freight" tab (`FreightTab`/`FreightShipmentSection`) showing existing shipment(s) — status, carrier, tracking number/link, label download, Shopify-sync status and retry — and a create form shown only when the order is eligible. The Kanban board gained two new batched, no-N+1 `BoardCard` fields (`hasActiveFreightShipment`, `freightTrackingNumber`, from one indexed query per board load, the same pattern as `loadOpenProductionIssueOrderIds`), rendered as a "Freight label created" indicator chip. (Post-redesign — see the Kanban board section's "board-column mapping" update: `FULFILLED` now has its own special view rather than sitting inside a catch-all, and a dedicated "Pack" column exists with inline freight controls — `hasActiveFreightShipment`/`freightTrackingNumber` stay in place for the indicator chip, and `BoardCard.freightShipment` was added alongside them carrying the full shape the Pack card needs.)
+
+### Permissions
+
+`freight_shipments.view/create/download/cancel` — granted in full to Manager. Packing Staff (this role's first real capability) get `view` + `download` only — shipment creation and cancellation stay Manager-only until real usage patterns justify widening it. Artwork Staff and Print Staff get nothing (freight is out of their scope).
+
+### Testing this without real Starshipit/Shopify traffic
+
+`vitest.config.ts`'s `test.env` block supplies deterministic-but-fake `STARSHIPIT_API_KEY`/`STARSHIPIT_SUBSCRIPTION_KEY` for every test run (the same mechanism already documented for Klaviyo — technical-debt item 19), and the seeded dev `Shop` row's Shopify domain/admin token are placeholders too. This means the integration tests for `createFreightShipment` and `syncFreightTrackingToShopify` genuinely exercise the real Starshipit/Shopify APIs and genuinely fail — proving the honest reserve→attempt→fail path never corrupts state (the shipment ends up `FAILED` with a real reason; a Shopify sync failure is recorded via `IntegrationFailure` without touching the shipment's own `CREATED` status), rather than being skipped or mocked into a fake happy path.
+
+### Deferred to later milestones
+
+- Bin locations, barcode scanning, a full Packing milestone (warehouse picking itself now exists — see "Warehouse picking (Milestone 13)" below).
+- Returns, customer reprint claims.
+- Customer shipping notifications (`notifyCustomer: false` is permanent for this milestone).
+- Voiding/cancelling a label with the carrier (technical-debt item 29).
+- A carrier/service/packaging-preset discovery UI (technical-debt item 31).
+- Multi-parcel/split shipments beyond a single Starshipit order-plus-label call.
+- A dedicated "Fulfilled" Kanban column (folded into the existing catch-all this milestone).
+
+## Warehouse picking (Milestone 13)
+
+Milestone 12 lets staff freight a completed order with no gate beyond permission — no packing/warehouse model existed yet at the time. This milestone fills the gap: turning "production is done" (`productionSummary === COMPLETE`) into a tracked staff task to physically gather every item for an order and hand it to packing. Deliberately narrow: a staff checklist workflow, not real inventory tracking — there is no SKU/bin on-hand-quantity model anywhere in this schema (only the generic, still-unused `Barcode`/`ScanEvent` scanning scaffold). See [ADR-0009](decisions/0009-warehouse-picking.md) for the full reasoning, including the milestone-numbering note (this shipped after Starshipit freight, so it's "Milestone 13" here despite being listed earlier in the architecture review's original ordering).
+
+### Domain model — WarehousePickJob and WarehousePickItem
+
+- **`WarehousePickJob`** — one per order, a real DB constraint (`@@unique([orderId])`), unlike `ProductionJob`/`FreightShipment` which can legitimately have more than one row per order. `status` (`QUEUED`/`IN_PROGRESS`/`HANDED_OVER`/`CANCELLED`), `assignedStaffId`, `priority`, and a `version` field for the same optimistic-concurrency CAS pattern as `ProductionJob.version`.
+- **`WarehousePickItem`** — one row per `ShopifyOrderLine` on the order, created for every line regardless of decoration method — a blank, undecorated garment still has to be physically gathered. `requiredQuantity`/`sku`/`productTitle` are snapshotted at creation time (same "fixed at creation" philosophy as `ExportBatchItem`). `pickedQuantity`/`shortQuantity`/`status` (`PENDING`/`IN_PROGRESS`/`PICKED`/`SHORT`) are derived, never hand-set directly.
+- **`WarehousePickQuantityUpdate`** — append-only log, `@@unique([warehousePickItemId, idempotencyKey])` — the real DB-enforced duplicate-submission guard, mirrors `ProductionQuantityUpdate` exactly.
+- **`WarehouseIssue`** — mirrors `ProductionIssue`'s shape (job-wide or item-specific via an optional `warehousePickItemId`), minus a file-attachment sub-model (not requested this milestone).
+- **`WarehouseNote`** — mirrors `ProductionNote`'s policy (internal only, create-only) but job-scoped only — no item-level notes this milestone.
+
+`ShopifyOrder.warehousePickSummary` (`OrderWarehousePickSummary`: `NOT_STARTED`/`IN_PROGRESS`/`HANDED_OVER`) is a **third, independent** rollup alongside `proofSummary`/`productionSummary` — an order can be fully production-complete while picking hasn't started, or picked while a later reprint reopens proofing.
+
+### Auto-creation lives inside recalculateOrderProductionSummary, not spread across its call sites
+
+`app/domain/warehouse/create-warehouse-pick-job.server.ts`'s `createWarehousePickJobForOrder(tx, {shopId, orderId, actorStaffId})` is called directly from `app/domain/production/recalculate.server.ts`'s `recalculateOrderProductionSummary` — the one writer of `productionSummary`, called at the end of every production-domain mutation (6 call sites today) — the moment the summary transitions to `COMPLETE`, in the *same transaction*. Unlike Milestone 12's Starshipit API call, this is pure DB writes with no external I/O, so keeping it atomic with the summary flip gives stronger consistency than a separate follow-up step, and avoids touching all 6 call sites individually. Idempotency comes from a plain existence check plus `WarehousePickJob`'s own `@@unique([orderId])` — safe because this always runs inside the same transaction as the summary flip, with no concurrent-race window to guard against.
+
+### Job/item status is derived, never hand-set — with one deliberate exception
+
+`app/domain/warehouse/pick-item-state.ts`'s `derivePickItemStatus` computes an item's status purely from `pickedQuantity`/`shortQuantity`/`requiredQuantity`. `app/domain/warehouse/pick-job-state.ts`'s `derivePickJobStatus` derives the job's status from its items — but `WarehousePickJobStatus` has **no distinct "ready for handover" value**: once every item reaches a terminal state, the job's derived status stays `IN_PROGRESS` until the explicit `handoverWarehousePickJob` action fires (technical-debt item 36), mirroring how `ProductionTask` completion is always explicit even though `ProductionJob.status` is otherwise derived. `app/domain/warehouse/recalculate.server.ts`'s `recalculateWarehousePickJobStatus` is the one writer of `WarehousePickJob.status` outside the explicit handover/cancel actions, called at the end of every item-level mutation inside the same transaction.
+
+### Quantity recording, marking short, and blocking issues
+
+`app/domain/warehouse/record-pick-quantity.server.ts`'s `recordPickQuantity` mirrors `record-production-quantity.server.ts` closely, minus the quality-check/rework dimensions production has — the `@@unique([warehousePickItemId, idempotencyKey])` constraint is the real duplicate-submission guard. It also checks for an open blocking `WarehouseIssue` on the item and rejects while one exists — `WarehousePickItemStatus` has no `BLOCKED` value (simpler than `ProductionTask`'s model); blocking is a query-time check, not a stored status. `app/domain/warehouse/mark-pick-item-short.server.ts`'s `markPickItemShort` marks whatever remains unaccounted for on a line as short — a deliberate staff declaration distinct from an ordinary partial pick still expecting more — and auto-creates a non-blocking `WarehouseIssue` (`STOCK_SHORTAGE`) documenting it, mirroring `perform-quality-check.server.ts`'s auto-issue-on-rework pattern. Per the milestone's own scope decision, **a short pick never blocks handover**.
+
+### Handover to packing
+
+`app/domain/warehouse/handover-warehouse-pick-job.server.ts`'s `handoverWarehousePickJob` is the one explicit terminal action, gated by `app/domain/warehouse/handover-eligibility.ts`'s `evaluateHandoverEligibility` — every item must be `PICKED` or `SHORT` (nothing `PENDING`/`IN_PROGRESS`), but a `SHORT` item never blocks it. On success: sets `WarehousePickJob.status = HANDED_OVER`, `ShopifyOrder.warehousePickSummary = HANDED_OVER`, and `workflowStatus = READY_TO_PACK` — finally making that `OrderStatus` value reachable (reserved since Milestone 06B), the same "this milestone finally reaches a long-reserved enum value" pattern as Milestone 12 reaching `FULFILLED`. `OrderStatus.PACKING` stays reserved for the still-unbuilt Packing milestone. Freight's own eligibility rule (Milestone 12) is deliberately **not** changed — it still gates only on `productionSummary === COMPLETE` (technical-debt item 35).
+
+### Routes, queue, and drawer UI
+
+`app/domain/warehouse/pick-queue-filters.ts` + `pick-queue-query.server.ts` mirror production's own `queue-filters.ts`/`queue-query.server.ts` precedent, scaled to this domain's smaller field set (no due dates, no decoration method) — 5 named views (all active, assigned to me, unassigned, has shortage, handed over recently), 4 sort fields. `/warehouse` (`app/routes/warehouse.tsx` + `WarehousePickQueuePage`) is the queue screen; `/warehouse/:jobId` (`app/routes/warehouse.$jobId.tsx` + `WarehousePickJobDrawer`, rendered via the parent route's `<Outlet />` exactly like the order/production drawers) is the full workstation — pick list with quantity entry and mark-short controls, issues, notes, activity, and the handover action (disabled with a clear reason until every line is picked or marked short). `/warehouse/actions` is a single action-only resource route, one-route-many-intents, matching `production.actions.tsx`'s convention. The order drawer's new "Warehouse" tab shows a read-only summary + link out to the full workstation, mirroring the Production tab's own "Production jobs" section — no pick/mark-short/handover controls duplicated there.
+
+### Permissions
+
+`warehouse_picks.view/assign/record_quantity/mark_short/handover`, `warehouse_issues.create/resolve`, `warehouse_notes.create` — granted in full to Manager. Packing Staff (this role's first real job-execution capability — it previously only had `freight_shipments.view/download`) get everything except `warehouse_issues.resolve`, mirroring exactly how Print Staff in production can create but not resolve issues.
+
+### Kanban and dashboard integration
+
+The Kanban board gained three new batched, no-N+1 `BoardCard` fields: `warehousePickSummary` (a direct column, no extra query), `hasOpenWarehouseIssue` and `hasShortPickItems` (one batched query each per board load, same pattern as `loadOpenProductionIssueOrderIds`). A card shows a "Ready to pack" success chip once `workflowStatus === READY_TO_PACK`, else a "Warehouse issue"/"Short pick"/"Picking" chip depending on state. (Post-redesign: `handoverWarehousePickJob`'s existing `workflowStatus → READY_TO_PACK` write now *also* moves the card into the dedicated "Pack" Kanban column — this file was never touched for the redesign, it just started feeding a real column instead of the old catch-all.) The dashboard gained a small "Warehouse picking at a glance" counts section (queued/in-progress/handed-over-today/with-shortage) and a shortcut card, mirroring production's own dashboard addition — no full `/warehouse/report` page this milestone.
+
+### Concurrency and idempotency
+
+Every guarantee is backed by a real DB constraint: `@@unique([orderId])` for pick-job creation, `@@unique([warehousePickJobId, orderLineId])` for item creation, `@@unique([warehousePickItemId, idempotencyKey])` for quantity submissions. Assignment uses the same `version`-based optimistic-concurrency CAS as production. Status transitions use scoped `updateMany` on an expected-status WHERE clause; a duplicate handover/cancel returns `already_there` rather than creating a second transition.
+
+### Deferred to later milestones
+
+- Real inventory/stock-level tracking and a genuine bin-location model (technical-debt item 33).
+- Barcode/scanner-driven pick confirmation (technical-debt item 34).
+- Gating freight eligibility on `warehousePickSummary` (technical-debt item 35).
+- A dedicated Kanban column for `READY_TO_PACK` and a full `/warehouse/report` page.
+- Item-level notes (job-level only) and `WarehouseIssue` file attachments.
+- The Packing milestone itself, returns, and customer reprint claims.
+
+## Exception cases — returns, warranty, defects (Milestone 14)
+
+Everything that happens when something goes wrong after an order has otherwise moved through the pipeline: a customer return, a warranty claim, a production defect caught late — and the resolutions that follow (reprint, credit, refund, exchange), plus the investigation workflow to manage it. Deliberately independent of `workflowStatus` — a return can happen well after `FULFILLED`/`ARCHIVED`. See [ADR-0010](decisions/0010-exception-cases.md) for the full reasoning, including why a pre-existing, unused `Reprint`/`ReprintAsset` model was removed rather than extended, and the milestone-numbering note.
+
+### Domain model — ExceptionCase and ExceptionCaseResolution
+
+- **`ExceptionCase`** — one unified entity for all three feature areas, classified by `category` (`CUSTOMER_RETURN`/`WARRANTY_CLAIM`/`PRODUCTION_DEFECT`/`OTHER`) and, orthogonally, `initiatedBy` (`CUSTOMER`/`STAFF`). `status` (`OPEN`/`INVESTIGATING`/`AWAITING_CUSTOMER`/`RESOLVED`/`CANCELLED`) is hand-set via explicit staff transitions — no multi-child rollup exists here the way `WarehousePickJobStatus` derives from item states, so this mirrors `ProofGroup.status`'s own directly-set style instead. `caseNumber` is sequential per order (`@@unique([orderId, caseNumber])`), same retry-on-conflict pattern as `ExportBatch.batchNumber`. Carries its own `returnLabelProvidedAt`/`returnLabelNote` fields — manual/external fact-recording, no carrier API call.
+- **`ExceptionCaseResolution`** — a child table, not fields flattened onto the case, since a case can accumulate more than one resolution over time (denied, then reconsidered) — mirrors `ProofVersion`'s "one row per decision event" precedent. `resolutionType` (`REPRINT`/`CREDIT`/`REFUND`/`EXCHANGE`/`DENIED`) and `status` (`PENDING`/`COMPLETED`) are independent: a resolution is *decided* first, then separately marked *completed* once actually carried out externally — nothing auto-completes silently, the same rule this codebase applies everywhere else. `amount`/`currencyCode` (record-only, no Shopify mutation) populate only for CREDIT/REFUND; `exportBatchId` populates only for REPRINT/EXCHANGE.
+- **`ExceptionCaseAttachment`**/**`ExceptionCaseNote`** mirror `ProductionIssueAttachment`/`ProductionNote`'s shapes exactly, at case scope.
+
+No new `ShopifyOrder` rollup column — the Kanban indicator is a simple batched boolean (`hasOpenExceptionCase`), not a summary enum, since a case doesn't roll up multiple children the way `productionSummary`/`warehousePickSummary` do.
+
+### REPRINT/EXCHANGE reuse createExportBatch — no second production-tracking mechanism
+
+`app/domain/exceptions/resolve-exception-case.server.ts`'s `resolveExceptionCase` is the centrepiece. For REPRINT/EXCHANGE, it calls the *existing* `createExportBatch` (`app/domain/production/create-export-batch.server.ts`, Milestone 10) directly — outside its own transaction, since `createExportBatch` does its own file I/O and DB transaction internally and this codebase never holds a transaction open across external work (same principle as freight's reserve-then-finalise shape) — passing the case's reason as `reexportReason`. The returned `exportBatchId` is stored on the `ExceptionCaseResolution` row, and the real `ExportBatch → ProductionJob/ProductionTask` chain that follows is identical to any other re-export. The only difference between a REPRINT and an EXCHANGE resolution is *why*, not *how* — both require selecting a `proofGroupId`. CREDIT/REFUND validate a positive `amount`; DENIED requires just the always-required `reason` — all via the pure `app/domain/exceptions/resolution-validation.ts`'s `validateResolutionInput`.
+
+### Status transitions
+
+`app/domain/exceptions/case-transitions.ts`'s `validateCaseStatusTransition` is a small pure state machine: `OPEN → INVESTIGATING → AWAITING_CUSTOMER → RESOLVED` (with `INVESTIGATING`/`AWAITING_CUSTOMER` interchangeable once investigation has started), `CANCELLED` reachable from any non-terminal state via the separate `canCancelCase`, nothing reachable once `RESOLVED`/`CANCELLED`. `app/domain/exceptions/transition-exception-case-status.server.ts` wraps this with the real DB-side CAS check (`updateMany` on the expected current status) and an `ActivityEvent`.
+
+### Routes, queue, and drawer UI
+
+Given "investigation workflow" was an explicit requirement and cases aren't well-represented on the Kanban board's forward-pipeline-oriented columns, this mirrors the Production/Warehouse precedent rather than staying order-drawer-only like Freight/Proofs: `/exceptions` (`app/routes/exceptions.tsx` + `ExceptionQueuePage`) is the queue screen (5 named views, 3 sort fields, mirroring `pick-queue-filters.ts`'s shape); `/exceptions/:caseId` (`app/routes/exceptions.$caseId.tsx` + `ExceptionCaseDrawer`, rendered via the parent route's `<Outlet />`) is the full workstation — status transitions, assignment, return-label recording, the resolution form, mark-completed, notes, activity. `/exceptions/actions` is a single global action-only resource route, one-route-many-intents, used by **both** the workstation drawer and the order drawer's own Exceptions tab (order ID passed as a plain form field, same convention `orders.$orderId.proof-groups.tsx` uses for proof-group IDs). Unlike the read-only Freight/Warehouse order-drawer tabs (whose underlying jobs are auto-created), the Exceptions tab also includes an inline "Report a problem" create form, since cases are always staff-initiated.
+
+### Permissions
+
+`exception_cases.view/create/update/assign/resolve/cancel`, `exception_notes.create` — granted in full to Manager/Administrator. Artwork Staff, Print Staff, and Packing Staff get `view`/`create`/`exception_notes.create` only — anyone can log a problem and add notes, but only management updates/assigns/resolves/cancels a case, mirroring exactly how Print Staff can create a `ProductionIssue` but never resolve one.
+
+### Kanban and dashboard integration
+
+`app/domain/orders/board-query.server.ts` gained `loadOpenExceptionCaseOrderIds`, a copy-exact batched, no-N+1 helper of `loadOpenProductionIssueOrderIds`, feeding a new `BoardCard.hasOpenExceptionCase` boolean — one `IndicatorChip` in `OrderCard.tsx`, linking to `/exceptions`. No new Kanban column. The dashboard gained a small "Exceptions at a glance" counts section (open/investigating/awaiting-customer/resolved-today) and a shortcut card, mirroring production's/warehouse's own dashboard additions.
+
+### Deferred to later milestones
+
+- Any real Shopify refund/store-credit mutation, and any return-label generation API call — both deliberate record-only/manual scope boundaries (technical-debt item 39).
+- Auto-completing a REPRINT/EXCHANGE resolution when its linked `ProductionJob` finishes (technical-debt item 37).
+- `ExceptionCaseAttachment` upload UI (technical-debt item 38).
+- A new `StaffUser` role for customer service — existing roles reused, per precedent.

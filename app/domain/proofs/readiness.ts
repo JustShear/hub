@@ -13,7 +13,19 @@ export interface ProofGroupReadinessInput {
   requirementValue: ProofRequirementValue;
   linkedLineCount: number;
   currentVersion: {
-    status: "DRAFT" | "READY_TO_SEND" | "SUPERSEDED" | "CANCELLED";
+    // SENT/VIEWED/APPROVED/CHANGES_REQUESTED (Milestone 09) fall through as
+    // "not blocking" the same way READY_TO_SEND does — once a version has
+    // been sent, whether it was internally ready to send is moot; only a
+    // version that's genuinely unusable (SUPERSEDED/CANCELLED) is flagged.
+    status:
+      | "DRAFT"
+      | "READY_TO_SEND"
+      | "SENT"
+      | "VIEWED"
+      | "APPROVED"
+      | "CHANGES_REQUESTED"
+      | "SUPERSEDED"
+      | "CANCELLED";
     hasStoredFile: boolean;
   } | null;
   hasOpenIntegrationFailure: boolean;
@@ -56,12 +68,6 @@ export function validateProofGroupReadiness(input: ProofGroupReadinessInput): Re
 
   if (!input.name.trim()) {
     issues.push("The proof group needs a name.");
-  }
-
-  // Placement isn't meaningful for an unprinted item — a documented
-  // exception, not an oversight.
-  if (input.decorationMethod !== "UNPRINTED" && !(input.placement ?? "").trim()) {
-    issues.push("Placement is required for this decoration method.");
   }
 
   if (input.hasOpenIntegrationFailure) {

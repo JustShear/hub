@@ -20,6 +20,7 @@ export interface BoardFiltersBarProps {
   filters: BoardFilters;
   sort: BoardSort;
   view: BoardView;
+  visibleColumns: string[] | undefined;
   filterOptions: BoardFilterOptions;
 }
 
@@ -34,11 +35,19 @@ const ORDER_AGE_LABELS: Record<OrderAgeBucket, string> = {
 // which re-runs orders.tsx's loader — no client-side filtering of
 // already-loaded data, so filters always reflect the full matching set
 // rather than just what happened to be on screen.
-export function BoardFiltersBar({ filters, sort, view, filterOptions }: BoardFiltersBarProps) {
+export function BoardFiltersBar({
+  filters,
+  sort,
+  view,
+  visibleColumns,
+  filterOptions,
+}: BoardFiltersBarProps) {
   const [, setSearchParams] = useSearchParams();
 
   function apply(next: BoardFilters) {
-    setSearchParams(boardFiltersToSearchParams(next, sort, view), { replace: true });
+    setSearchParams(boardFiltersToSearchParams(next, sort, view, visibleColumns), {
+      replace: true,
+    });
   }
 
   function togglePriority(value: PriorityFilterValue) {

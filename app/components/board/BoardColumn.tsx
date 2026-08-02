@@ -12,6 +12,7 @@ export interface BoardColumnProps {
   column: BoardColumnResult;
   canManage: boolean;
   canViewIntegrations: boolean;
+  canCreateFreightShipments: boolean;
   pendingCardIds: ReadonlySet<string>;
   onMove: (card: BoardCard, targetColumnKey: BoardColumnKey) => void;
   onLoadMore: (columnKey: BoardColumnKey) => void;
@@ -22,6 +23,7 @@ export function BoardColumn({
   column,
   canManage,
   canViewIntegrations,
+  canCreateFreightShipments,
   pendingCardIds,
   onMove,
   onLoadMore,
@@ -66,6 +68,7 @@ export function BoardColumn({
               card={card}
               canManage={canManage}
               canViewIntegrations={canViewIntegrations}
+              canCreateFreightShipments={canCreateFreightShipments}
               isPending={pendingCardIds.has(card.id)}
               onMove={(targetColumnKey) => {
                 onMove(card, targetColumnKey);

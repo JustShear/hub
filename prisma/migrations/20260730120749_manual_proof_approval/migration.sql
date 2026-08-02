@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "OverrideType" ADD VALUE 'MANUAL_PROOF_APPROVAL';

@@ -20,7 +20,25 @@ const envSchema = z.object({
 
   KLAVIYO_API_KEY: z.string().min(1),
 
+  // Milestone 12 — Starshipit freight labels. Both required (the API needs
+  // both headers on every request); no default, since a placeholder value
+  // would silently produce authentication failures indistinguishable from a
+  // real outage rather than failing closed at boot.
+  STARSHIPIT_API_KEY: z.string().min(1),
+  STARSHIPIT_SUBSCRIPTION_KEY: z.string().min(1),
+
   SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters"),
+
+  // Milestone 09 — customer proof requests. Both configurable per the SRS
+  // rather than hardcoded, with sensible documented defaults (see
+  // docs/development.md "Proof requests (Milestone 09)").
+  PROOF_TOKEN_EXPIRY_DAYS: z.coerce.number().int().positive().default(14),
+  PROOF_REMINDER_DELAY_DAYS: z.coerce.number().int().positive().default(3),
+  // The public origin used to build the customer proof-portal link
+  // (`${APP_BASE_URL}/proof/:token`) embedded in the Klaviyo event's merge
+  // fields. Defaults to the local dev server; every real deployment must
+  // override this to its actual public origin.
+  APP_BASE_URL: z.url().default("http://localhost:5173"),
 });
 
 export type Env = z.infer<typeof envSchema>;

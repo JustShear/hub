@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import type { Notification } from "@prisma/client";
 import type { StaffUserWithPermissions } from "~/auth/staff-session.server";
 import { hasPermission } from "~/auth/rbac";
 import type { NavGroup } from "~/lib/navigation";
@@ -12,18 +13,26 @@ export interface AppHeaderProps {
   staffUser: StaffUserWithPermissions;
   groups: NavGroup[];
   integrationIssueCount: number;
+  notifications: Notification[];
+  unreadNotificationCount: number;
 }
 
-export function AppHeader({ staffUser, groups, integrationIssueCount }: AppHeaderProps) {
+export function AppHeader({
+  staffUser,
+  groups,
+  integrationIssueCount,
+  notifications,
+  unreadNotificationCount,
+}: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-4">
       <div className="flex items-center gap-2">
         <MobileNavigation groups={groups} integrationIssueCount={integrationIssueCount} />
         <Link
           to="/dashboard"
-          className="rounded px-1 text-base font-semibold text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+          className="rounded px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
         >
-          Just Shear
+          <img src="/logo.png" alt="Just Shear" className="h-7 w-auto" />
         </Link>
       </div>
       <div className="flex items-center gap-1.5">
@@ -31,7 +40,7 @@ export function AppHeader({ staffUser, groups, integrationIssueCount }: AppHeade
         {hasPermission(staffUser, "integrations.view") ? (
           <IntegrationIssueIndicator count={integrationIssueCount} />
         ) : null}
-        <NotificationMenu />
+        <NotificationMenu notifications={notifications} unreadCount={unreadNotificationCount} />
         <UserMenu staffUser={staffUser} />
       </div>
     </header>

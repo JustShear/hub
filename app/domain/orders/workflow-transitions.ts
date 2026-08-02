@@ -26,7 +26,7 @@ export function canMoveOrderToColumn(
     return {
       allowed: false,
       reason:
-        "This order is on hold, cancelled, or archived. Reactivating it into the active workflow isn't supported from the board yet.",
+        "This order is on hold, cancelled, archived, or fulfilled. Reactivating it into the active workflow isn't supported from the board yet.",
     };
   }
 

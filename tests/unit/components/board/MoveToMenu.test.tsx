@@ -60,8 +60,8 @@ describe("MoveToMenu", () => {
       <MoveToMenu currentWorkflowStatus={OrderStatus.NEW} currentColumnKey="new" onMove={onMove} />,
     );
     fireEvent.pointerDown(screen.getByRole("button", { name: /move to/i }));
-    const item = await screen.findByRole("menuitem", { name: "Waiting on Customer" });
+    const item = await screen.findByRole("menuitem", { name: "Pack" });
     fireEvent.click(item);
-    expect(onMove).toHaveBeenCalledWith("waiting_on_customer");
+    expect(onMove).toHaveBeenCalledWith("pack");
   });
 });

@@ -1,6 +1,7 @@
 import { JobStatus } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import { processShopifySyncJob } from "~/domain/orders/process-sync-job.server";
+import { dispatchDueProofReminders } from "~/domain/proofs/dispatch-due-proof-reminders.server";
 
 const POLL_INTERVAL_MS = 30_000;
 const BATCH_SIZE = 20;
@@ -26,6 +27,9 @@ export function startJobPoller(): void {
   setInterval(() => {
     void drainDueJobs().catch((error: unknown) => {
       console.error("Job poller iteration failed", error);
+    });
+    void dispatchDueProofReminders().catch((error: unknown) => {
+      console.error("Proof reminder poller iteration failed", error);
     });
   }, POLL_INTERVAL_MS).unref();
 }

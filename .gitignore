@@ -18,3 +18,7 @@ Thumbs.db
 # Local-disk proof-file storage (interim adapter — see ADR-0004). Real
 # uploaded bytes never belong in source control.
 /.storage/
+
+# Local database backups (scripts/backup-database.ts). Real customer data
+# never belongs in source control — see docs/backup-and-restore.md.
+/.backups/

@@ -1,6 +1,8 @@
 # ADR-0004: Interim local-disk storage for proof files, behind a provider-agnostic adapter
 
-**Status:** Accepted for the current milestone sequence. Must be replaced before production go-live.
+**Status:** Resolved (Milestone 16) for the storage-provider risk this ADR describes — see [ADR-0011](0011-cloudflare-r2-migration.md). `localDiskStorageAdapter` still exists and is still the adapter used in development and the test suite; only production traffic now goes through `r2StorageAdapter`. The signed-URL follow-up noted below under "Required future work" was **not** done this milestone — every file route still streams bytes through the Node process rather than redirecting to a provider-signed URL.
+
+**Update (Milestone 10):** production artwork files and generated export packages reuse `localDiskStorageAdapter` unchanged — no new adapter, no new decision. Every risk and required-future-work item below applied equally to them; ADR-0011's R2 migration covers all four call sites (proof files, production artwork, export packages, freight labels), not just the original proof-file use case.
 
 ## Context
 

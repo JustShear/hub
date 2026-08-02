@@ -7,6 +7,7 @@ import type {
   IntegrationFailureStatus,
   IntegrationType,
   NoteVisibility,
+  OrderProductionSummary,
   OrderProofSummary,
   OrderStatus,
   Priority,
@@ -21,6 +22,30 @@ import {
   loadProofGroupsForOrder,
   type OrderDetailProofGroup,
 } from "~/domain/proofs/proof-group-query.server";
+import {
+  loadProofRequestsForOrder,
+  type OrderDetailProofRequest,
+} from "~/domain/proofs/proof-request-query.server";
+import {
+  loadExportBatchesForOrder,
+  type OrderDetailExportBatch,
+} from "~/domain/production/export-batch-query.server";
+import {
+  loadProductionJobsForOrder,
+  type OrderDetailProductionJob,
+} from "~/domain/production/production-job-order-query.server";
+import {
+  loadFreightShipmentsForOrder,
+  type OrderDetailFreightShipment,
+} from "~/domain/freight/freight-query.server";
+import {
+  loadWarehousePickJobForOrder,
+  type OrderDetailWarehousePickJob,
+} from "~/domain/warehouse/pick-job-order-query.server";
+import {
+  loadExceptionCasesForOrder,
+  type OrderDetailExceptionCase,
+} from "~/domain/exceptions/exception-case-order-query.server";
 
 export const NOTES_PAGE_SIZE = 20;
 export const ACTIVITY_PAGE_SIZE = 30;
@@ -162,6 +187,7 @@ export interface OrderDetail {
   workflowStatus: OrderStatus;
   workflowStatusChangedAt: string;
   proofSummary: OrderProofSummary;
+  productionSummary: OrderProductionSummary;
   priority: Priority;
   createdAt: string;
   updatedAt: string;
@@ -175,6 +201,12 @@ export interface OrderDetail {
   activityHasMore: boolean;
   integrationIssues: OrderDetailIntegrationIssue[];
   proofGroups: OrderDetailProofGroup[];
+  proofRequests: OrderDetailProofRequest[];
+  exportBatches: OrderDetailExportBatch[];
+  productionJobs: OrderDetailProductionJob[];
+  freightShipments: OrderDetailFreightShipment[];
+  warehousePickJob: OrderDetailWarehousePickJob | null;
+  exceptionCases: OrderDetailExceptionCase[];
   daysInState: number;
   orderAgeDays: number;
   isWaitingOnCustomer: boolean;
@@ -214,7 +246,18 @@ export async function loadOrderDetail(params: {
 
   if (!order) return null;
 
-  const [notes, notesTotalCount, activity, proofGroups] = await Promise.all([
+  const [
+    notes,
+    notesTotalCount,
+    activity,
+    proofGroups,
+    proofRequests,
+    exportBatches,
+    productionJobs,
+    freightShipments,
+    warehousePickJob,
+    exceptionCases,
+  ] = await Promise.all([
     db.orderNote.findMany({
       where: { orderId: order.id },
       orderBy: { createdAt: "desc" },
@@ -227,6 +270,12 @@ export async function loadOrderDetail(params: {
       take: ACTIVITY_PAGE_SIZE + 1,
     }),
     loadProofGroupsForOrder({ shopId: params.shopId, orderId: order.id }),
+    loadProofRequestsForOrder({ shopId: params.shopId, orderId: order.id }),
+    loadExportBatchesForOrder({ shopId: params.shopId, orderId: order.id }),
+    loadProductionJobsForOrder({ shopId: params.shopId, orderId: order.id }),
+    loadFreightShipmentsForOrder({ shopId: params.shopId, orderId: order.id }),
+    loadWarehousePickJobForOrder({ shopId: params.shopId, orderId: order.id }),
+    loadExceptionCasesForOrder({ shopId: params.shopId, orderId: order.id }),
   ]);
 
   const activityHasMore = activity.length > ACTIVITY_PAGE_SIZE;
@@ -275,6 +324,7 @@ export async function loadOrderDetail(params: {
     workflowStatus: order.workflowStatus,
     workflowStatusChangedAt: order.workflowStatusChangedAt.toISOString(),
     proofSummary: order.proofSummary,
+    productionSummary: order.productionSummary,
     priority: order.priority,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
@@ -382,6 +432,12 @@ export async function loadOrderDetail(params: {
         : {}),
     })),
     proofGroups,
+    proofRequests,
+    exportBatches,
+    productionJobs,
+    freightShipments,
+    warehousePickJob,
+    exceptionCases,
     daysInState: daysSince(order.workflowStatusChangedAt, now),
     orderAgeDays: daysSince(order.shopifyCreatedAt, now),
     isWaitingOnCustomer:

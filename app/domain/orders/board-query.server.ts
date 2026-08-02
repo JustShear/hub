@@ -3,7 +3,10 @@ import {
   OrderProofSummary,
   type AssignmentRole,
   type DueDateType,
+  type OrderProductionSummary,
+  type OrderWarehousePickSummary,
   type Priority,
+  type ProductionIssueStatus,
   type Severity,
   type Prisma,
 } from "@prisma/client";
@@ -62,9 +65,12 @@ const BOARD_CARD_SELECT = {
   workflowStatus: true,
   workflowStatusChangedAt: true,
   proofSummary: true,
+  productionSummary: true,
+  warehousePickSummary: true,
   priority: true,
   tags: true,
   isPreorder: true,
+  cancelledAt: true,
   lines: {
     take: 6,
     orderBy: { createdAt: "asc" },
@@ -157,6 +163,34 @@ export interface BoardCard {
   hasCustomerResponseAlert: boolean;
   /** True for workflowStatus PARTIALLY_APPROVED/READY_FOR_EXPORT — approved but not yet exported. */
   isApprovedNotExported: boolean;
+  /** An open EMAIL-integration failure exists for this order (Milestone 09) — a proof-request email failed to send. */
+  hasFailedProofDelivery: boolean;
+  /** At least one APPROVED/NO_PROOF_REQUIRED group has no production artwork prepared yet (Milestone 10). */
+  hasMissingProductionArtwork: boolean;
+  /** At least one READY_FOR_EXPORT group was previously exported and now needs a fresh export run (Milestone 10). */
+  hasReexportRequired: boolean;
+  /** Rolled up from all non-cancelled production tasks across all non-cancelled jobs (Milestone 11) — never hand-set. */
+  productionSummary: OrderProductionSummary;
+  /** An open (non-resolved/cancelled) ProductionIssue exists somewhere on this order (Milestone 11). */
+  hasOpenProductionIssue: boolean;
+  /** The order-level PRODUCTION-role assignee, if any — distinct from a specific job/task's own assignee (Milestone 11). */
+  productionAssignedStaffName: string | null;
+  /** A non-cancelled/non-failed FreightShipment exists for this order (Milestone 12). */
+  hasActiveFreightShipment: boolean;
+  /** The tracking number of the most recent CREATED shipment, if any (Milestone 12). */
+  freightTrackingNumber: string | null;
+  /** Full active-shipment shape for the inline Pack-column freight controls, if one exists. */
+  freightShipment: BoardCardFreightShipment | null;
+  /** ShopifyOrder.cancelledAt !== null — distinct from workflowStatus === CANCELLED, since a Shopify-cancelled order's workflowStatus isn't forced to move. */
+  isCancelled: boolean;
+  /** Rolled up from the order's WarehousePickJob (Milestone 13) — never hand-set. */
+  warehousePickSummary: OrderWarehousePickSummary;
+  /** An open (non-resolved/cancelled) WarehouseIssue exists somewhere on this order (Milestone 13). */
+  hasOpenWarehouseIssue: boolean;
+  /** At least one WarehousePickItem on this order's pick job is SHORT (Milestone 13). */
+  hasShortPickItems: boolean;
+  /** An open (non-resolved/cancelled) ExceptionCase exists somewhere on this order (Milestone 14). */
+  hasOpenExceptionCase: boolean;
   /** Null only for special-view (on hold / cancelled / archived) cards. */
   columnKey: BoardColumnKey | null;
   lines: BoardCardProductLine[];
@@ -253,6 +287,13 @@ function toBoardCard(
   now: Date,
   blockedProofGroupIds: Set<string>,
   staffNames: Map<string, string>,
+  failedDeliveryOrderIds: Set<string>,
+  missingProductionArtworkOrderIds: Set<string>,
+  reexportRequiredOrderIds: Set<string>,
+  openProductionIssueOrderIds: Set<string>,
+  freightShipmentByOrderId: Map<string, BoardCardFreightShipment>,
+  warehousePickIndicators: { openIssueOrderIds: Set<string>; shortItemOrderIds: Set<string> },
+  openExceptionCaseOrderIds: Set<string>,
 ): BoardCard {
   return {
     id: row.id,
@@ -274,6 +315,21 @@ function toBoardCard(
     isApprovedNotExported:
       row.workflowStatus === OrderStatus.PARTIALLY_APPROVED ||
       row.workflowStatus === OrderStatus.READY_FOR_EXPORT,
+    hasFailedProofDelivery: failedDeliveryOrderIds.has(row.id),
+    hasMissingProductionArtwork: missingProductionArtworkOrderIds.has(row.id),
+    hasReexportRequired: reexportRequiredOrderIds.has(row.id),
+    productionSummary: row.productionSummary,
+    hasOpenProductionIssue: openProductionIssueOrderIds.has(row.id),
+    productionAssignedStaffName:
+      row.assignments.find((a) => a.role === "PRODUCTION")?.staffUser.name ?? null,
+    hasActiveFreightShipment: freightShipmentByOrderId.has(row.id),
+    freightTrackingNumber: freightShipmentByOrderId.get(row.id)?.trackingNumber ?? null,
+    freightShipment: freightShipmentByOrderId.get(row.id) ?? null,
+    isCancelled: row.cancelledAt !== null,
+    warehousePickSummary: row.warehousePickSummary,
+    hasOpenWarehouseIssue: warehousePickIndicators.openIssueOrderIds.has(row.id),
+    hasShortPickItems: warehousePickIndicators.shortItemOrderIds.has(row.id),
+    hasOpenExceptionCase: openExceptionCaseOrderIds.has(row.id),
     columnKey: getBoardColumnKey(row),
     lines: row.lines.map((line) => ({
       id: line.id,
@@ -312,16 +368,244 @@ async function loadBlockedProofGroupIds(proofGroupIds: string[]): Promise<Set<st
   );
 }
 
-async function loadProofGroupBoardContext(
-  rows: BoardOrderRow[],
-): Promise<{ blockedProofGroupIds: Set<string>; staffNames: Map<string, string> }> {
+// Same batched, no-Prisma-relation pattern as loadBlockedProofGroupIds —
+// KlaviyoDispatch failures are recorded as IntegrationFailure rows scoped
+// by relatedOrderId (not relatedProofGroupId), so a delivery-failed
+// indicator costs one more batched query, not per-card N+1, and never
+// requires loading the full proof-request/response history onto the board.
+async function loadFailedDeliveryOrderIds(orderIds: string[]): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const failures = await db.integrationFailure.findMany({
+    where: {
+      relatedOrderId: { in: orderIds },
+      integration: "EMAIL",
+      status: { in: OPEN_STATUSES },
+    },
+    select: { relatedOrderId: true },
+  });
+  return new Set(failures.map((f) => f.relatedOrderId).filter((id): id is string => id !== null));
+}
+
+// Same batched, no-N+1 pattern as loadBlockedProofGroupIds/loadFailedDeliveryOrderIds
+// — one query for the whole board load, never per-card. An order "has
+// missing production artwork" when at least one of its export-eligible
+// groups (APPROVED/NO_PROOF_REQUIRED) has no non-cancelled ProductionArtwork
+// row at all yet.
+async function loadMissingProductionArtworkOrderIds(rows: BoardOrderRow[]): Promise<Set<string>> {
+  const eligibleGroupIds = rows.flatMap((r) =>
+    r.proofGroups
+      .filter((g) => g.status === "APPROVED" || g.status === "NO_PROOF_REQUIRED")
+      .map((g) => g.id),
+  );
+  if (eligibleGroupIds.length === 0) return new Set();
+
+  const groupsWithArtwork = await db.productionArtwork.findMany({
+    where: { proofGroupId: { in: eligibleGroupIds }, status: { not: "CANCELLED" } },
+    select: { proofGroupId: true },
+    distinct: ["proofGroupId"],
+  });
+  const groupIdsWithArtwork = new Set(groupsWithArtwork.map((a) => a.proofGroupId));
+  const missingGroupIds = new Set(eligibleGroupIds.filter((id) => !groupIdsWithArtwork.has(id)));
+
+  return new Set(
+    rows.filter((r) => r.proofGroups.some((g) => missingGroupIds.has(g.id))).map((r) => r.id),
+  );
+}
+
+// A group "needs re-export" when it's currently READY_FOR_EXPORT but also
+// already has a prior EXPORTED revision — i.e. a correction was prepared
+// and marked ready after the group's original export, so the existing
+// export package on file no longer reflects what's actually approved.
+async function loadReexportRequiredOrderIds(rows: BoardOrderRow[]): Promise<Set<string>> {
+  const readyGroupIds = rows.flatMap((r) =>
+    r.proofGroups.filter((g) => g.status === "READY_FOR_EXPORT").map((g) => g.id),
+  );
+  if (readyGroupIds.length === 0) return new Set();
+
+  const priorExports = await db.productionArtwork.findMany({
+    where: { proofGroupId: { in: readyGroupIds }, status: "EXPORTED" },
+    select: { proofGroupId: true },
+    distinct: ["proofGroupId"],
+  });
+  const reexportGroupIds = new Set(priorExports.map((a) => a.proofGroupId));
+
+  return new Set(
+    rows.filter((r) => r.proofGroups.some((g) => reexportGroupIds.has(g.id))).map((r) => r.id),
+  );
+}
+
+const OPEN_PRODUCTION_ISSUE_STATUSES: ProductionIssueStatus[] = [
+  "OPEN",
+  "INVESTIGATING",
+  "WAITING",
+];
+
+// Same batched, no-N+1 pattern as the other loadX helpers above —
+// ProductionIssue.orderId is a real FK (unlike the loose proofGroupId/
+// artworkId snapshot fields on that model), so one indexed query for the
+// whole board load covers every card (Milestone 11).
+async function loadOpenProductionIssueOrderIds(orderIds: string[]): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const issues = await db.productionIssue.findMany({
+    where: { orderId: { in: orderIds }, status: { in: OPEN_PRODUCTION_ISSUE_STATUSES } },
+    select: { orderId: true },
+    distinct: ["orderId"],
+  });
+  return new Set(issues.map((i) => i.orderId));
+}
+
+// Card-level freight shipment shape for the inline Pack-column controls
+// (weight/dims/carrier so the card can distinguish "no shipment yet, show
+// the create-new form" from "already has one, show its status") — kept
+// alongside, not replacing, the lighter hasActiveFreightShipment/
+// freightTrackingNumber fields the existing indicator chip already uses.
+export interface BoardCardFreightShipment {
+  id: string;
+  status: "PREPARING" | "CREATED";
+  trackingNumber: string | null;
+  weightKg: number | null;
+  heightM: number | null;
+  widthM: number | null;
+  lengthM: number | null;
+  carrierCode: string;
+  carrierServiceCode: string;
+}
+
+// Same batched, no-N+1 pattern as loadOpenProductionIssueOrderIds —
+// FreightShipment.orderId is a real FK, so one indexed query per board load
+// covers every card (Milestone 12). Prefers a CREATED shipment over a still-
+// PREPARING one when an order somehow has more than one non-terminal row
+// (shouldn't normally happen — creation rejects a second active shipment —
+// but this stays defensive rather than assuming).
+async function loadFreightShipmentsByOrderId(
+  orderIds: string[],
+): Promise<Map<string, BoardCardFreightShipment>> {
+  if (orderIds.length === 0) return new Map();
+  const shipments = await db.freightShipment.findMany({
+    where: { orderId: { in: orderIds }, status: { in: ["PREPARING", "CREATED"] } },
+    select: {
+      orderId: true,
+      id: true,
+      status: true,
+      trackingNumber: true,
+      weightKg: true,
+      heightM: true,
+      widthM: true,
+      lengthM: true,
+      carrierCode: true,
+      carrierServiceCode: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const result = new Map<string, BoardCardFreightShipment>();
+  for (const shipment of shipments) {
+    const existing = result.get(shipment.orderId);
+    if (!existing || (shipment.status === "CREATED" && existing.status !== "CREATED")) {
+      result.set(shipment.orderId, {
+        id: shipment.id,
+        // The where clause above guarantees only PREPARING/CREATED rows are
+        // ever fetched — Prisma's generated type doesn't narrow on that,
+        // hence the assertion.
+        status: shipment.status as "PREPARING" | "CREATED",
+        trackingNumber: shipment.trackingNumber,
+        weightKg: shipment.weightKg,
+        heightM: shipment.heightM,
+        widthM: shipment.widthM,
+        lengthM: shipment.lengthM,
+        carrierCode: shipment.carrierCode,
+        carrierServiceCode: shipment.carrierServiceCode,
+      });
+    }
+  }
+  return result;
+}
+
+// Same batched, no-N+1 pattern as loadOpenProductionIssueOrderIds — two
+// small indexed queries (WarehouseIssue.orderId and
+// WarehousePickItem.status via its job's orderId) cover every card in one
+// pass each per board load (Milestone 13).
+async function loadWarehousePickIndicatorsByOrderId(orderIds: string[]): Promise<{
+  openIssueOrderIds: Set<string>;
+  shortItemOrderIds: Set<string>;
+}> {
+  if (orderIds.length === 0) return { openIssueOrderIds: new Set(), shortItemOrderIds: new Set() };
+  const [issues, shortItems] = await Promise.all([
+    db.warehouseIssue.findMany({
+      where: { orderId: { in: orderIds }, status: { in: ["OPEN", "INVESTIGATING", "WAITING"] } },
+      select: { orderId: true },
+      distinct: ["orderId"],
+    }),
+    db.warehousePickItem.findMany({
+      where: { status: "SHORT", warehousePickJob: { orderId: { in: orderIds } } },
+      select: { warehousePickJob: { select: { orderId: true } } },
+      distinct: ["warehousePickJobId"],
+    }),
+  ]);
+  return {
+    openIssueOrderIds: new Set(issues.map((i) => i.orderId)),
+    shortItemOrderIds: new Set(shortItems.map((i) => i.warehousePickJob.orderId)),
+  };
+}
+
+// Same batched, no-N+1 pattern as loadOpenProductionIssueOrderIds —
+// ExceptionCase.orderId is a real FK, so one indexed query per board load
+// covers every card (Milestone 14).
+async function loadOpenExceptionCaseOrderIds(orderIds: string[]): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const cases = await db.exceptionCase.findMany({
+    where: { orderId: { in: orderIds }, status: { notIn: ["RESOLVED", "CANCELLED"] } },
+    select: { orderId: true },
+    distinct: ["orderId"],
+  });
+  return new Set(cases.map((c) => c.orderId));
+}
+
+async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
+  blockedProofGroupIds: Set<string>;
+  staffNames: Map<string, string>;
+  failedDeliveryOrderIds: Set<string>;
+  missingProductionArtworkOrderIds: Set<string>;
+  reexportRequiredOrderIds: Set<string>;
+  openProductionIssueOrderIds: Set<string>;
+  freightShipmentByOrderId: Map<string, BoardCardFreightShipment>;
+  warehousePickIndicators: { openIssueOrderIds: Set<string>; shortItemOrderIds: Set<string> };
+  openExceptionCaseOrderIds: Set<string>;
+}> {
   const proofGroupIds = rows.flatMap((r) => r.proofGroups.map((g) => g.id));
   const staffIds = rows.flatMap((r) => r.proofGroups.map((g) => g.assignedStaffId));
-  const [blockedProofGroupIds, staffNames] = await Promise.all([
+  const orderIds = rows.map((r) => r.id);
+  const [
+    blockedProofGroupIds,
+    staffNames,
+    failedDeliveryOrderIds,
+    missingProductionArtworkOrderIds,
+    reexportRequiredOrderIds,
+    openProductionIssueOrderIds,
+    freightShipmentByOrderId,
+    warehousePickIndicators,
+    openExceptionCaseOrderIds,
+  ] = await Promise.all([
     loadBlockedProofGroupIds(proofGroupIds),
     resolveStaffNames(staffIds),
+    loadFailedDeliveryOrderIds(orderIds),
+    loadMissingProductionArtworkOrderIds(rows),
+    loadReexportRequiredOrderIds(rows),
+    loadOpenProductionIssueOrderIds(orderIds),
+    loadFreightShipmentsByOrderId(orderIds),
+    loadWarehousePickIndicatorsByOrderId(orderIds),
+    loadOpenExceptionCaseOrderIds(orderIds),
   ]);
-  return { blockedProofGroupIds, staffNames };
+  return {
+    blockedProofGroupIds,
+    staffNames,
+    failedDeliveryOrderIds,
+    missingProductionArtworkOrderIds,
+    reexportRequiredOrderIds,
+    openProductionIssueOrderIds,
+    freightShipmentByOrderId,
+    warehousePickIndicators,
+    openExceptionCaseOrderIds,
+  };
 }
 
 function buildSearchWhere(term: string): Prisma.ShopifyOrderWhereInput {
@@ -506,8 +790,32 @@ export async function loadBoardColumns(params: {
     take: fetchCap,
   });
 
-  const { blockedProofGroupIds, staffNames } = await loadProofGroupBoardContext(rows);
-  let cards = rows.map((row) => toBoardCard(row, now, blockedProofGroupIds, staffNames));
+  const {
+    blockedProofGroupIds,
+    staffNames,
+    failedDeliveryOrderIds,
+    missingProductionArtworkOrderIds,
+    reexportRequiredOrderIds,
+    openProductionIssueOrderIds,
+    freightShipmentByOrderId,
+    warehousePickIndicators,
+    openExceptionCaseOrderIds,
+  } = await loadProofGroupBoardContext(rows);
+  let cards = rows.map((row) =>
+    toBoardCard(
+      row,
+      now,
+      blockedProofGroupIds,
+      staffNames,
+      failedDeliveryOrderIds,
+      missingProductionArtworkOrderIds,
+      reexportRequiredOrderIds,
+      openProductionIssueOrderIds,
+      freightShipmentByOrderId,
+      warehousePickIndicators,
+      openExceptionCaseOrderIds,
+    ),
+  );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
   cards.sort((a, b) => compareCards(a, b, params.sort.field));
 
@@ -552,8 +860,32 @@ export async function loadMoreForColumn(params: {
       take: LOAD_MORE_PAGE_SIZE,
       ...(params.cursorId ? { cursor: { id: params.cursorId }, skip: 1 } : {}),
     });
-    const { blockedProofGroupIds, staffNames } = await loadProofGroupBoardContext(rows);
-    let cards = rows.map((row) => toBoardCard(row, now, blockedProofGroupIds, staffNames));
+    const {
+      blockedProofGroupIds,
+      staffNames,
+      failedDeliveryOrderIds,
+      missingProductionArtworkOrderIds,
+      reexportRequiredOrderIds,
+      openProductionIssueOrderIds,
+      freightShipmentByOrderId,
+      warehousePickIndicators,
+      openExceptionCaseOrderIds,
+    } = await loadProofGroupBoardContext(rows);
+    let cards = rows.map((row) =>
+      toBoardCard(
+        row,
+        now,
+        blockedProofGroupIds,
+        staffNames,
+        failedDeliveryOrderIds,
+        missingProductionArtworkOrderIds,
+        reexportRequiredOrderIds,
+        openProductionIssueOrderIds,
+        freightShipmentByOrderId,
+        warehousePickIndicators,
+        openExceptionCaseOrderIds,
+      ),
+    );
     cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
     const last = rows.at(-1);
     return {
@@ -570,8 +902,32 @@ export async function loadMoreForColumn(params: {
     orderBy: buildSqlOrderBy(params.sort.field),
     take: MAX_OFFSET_PAGINATION_ROWS,
   });
-  const { blockedProofGroupIds, staffNames } = await loadProofGroupBoardContext(rows);
-  let cards = rows.map((row) => toBoardCard(row, now, blockedProofGroupIds, staffNames));
+  const {
+    blockedProofGroupIds,
+    staffNames,
+    failedDeliveryOrderIds,
+    missingProductionArtworkOrderIds,
+    reexportRequiredOrderIds,
+    openProductionIssueOrderIds,
+    freightShipmentByOrderId,
+    warehousePickIndicators,
+    openExceptionCaseOrderIds,
+  } = await loadProofGroupBoardContext(rows);
+  let cards = rows.map((row) =>
+    toBoardCard(
+      row,
+      now,
+      blockedProofGroupIds,
+      staffNames,
+      failedDeliveryOrderIds,
+      missingProductionArtworkOrderIds,
+      reexportRequiredOrderIds,
+      openProductionIssueOrderIds,
+      freightShipmentByOrderId,
+      warehousePickIndicators,
+      openExceptionCaseOrderIds,
+    ),
+  );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
   cards.sort((a, b) => compareCards(a, b, params.sort.field));
   const page = cards.slice(offset, offset + LOAD_MORE_PAGE_SIZE);
@@ -600,8 +956,32 @@ export async function loadSpecialView(params: {
     take: LOAD_MORE_PAGE_SIZE,
     ...(params.cursorId ? { cursor: { id: params.cursorId }, skip: 1 } : {}),
   });
-  const { blockedProofGroupIds, staffNames } = await loadProofGroupBoardContext(rows);
-  const cards = rows.map((row) => toBoardCard(row, now, blockedProofGroupIds, staffNames));
+  const {
+    blockedProofGroupIds,
+    staffNames,
+    failedDeliveryOrderIds,
+    missingProductionArtworkOrderIds,
+    reexportRequiredOrderIds,
+    openProductionIssueOrderIds,
+    freightShipmentByOrderId,
+    warehousePickIndicators,
+    openExceptionCaseOrderIds,
+  } = await loadProofGroupBoardContext(rows);
+  const cards = rows.map((row) =>
+    toBoardCard(
+      row,
+      now,
+      blockedProofGroupIds,
+      staffNames,
+      failedDeliveryOrderIds,
+      missingProductionArtworkOrderIds,
+      reexportRequiredOrderIds,
+      openProductionIssueOrderIds,
+      freightShipmentByOrderId,
+      warehousePickIndicators,
+      openExceptionCaseOrderIds,
+    ),
+  );
   const last = rows.at(-1);
   return { cards, nextCursorId: rows.length === LOAD_MORE_PAGE_SIZE && last ? last.id : null };
 }

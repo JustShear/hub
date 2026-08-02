@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import { DndContext } from "@dnd-kit/core";
-import { OrderProofSummary, OrderStatus, Priority } from "@prisma/client";
+import {
+  OrderProductionSummary,
+  OrderProofSummary,
+  OrderStatus,
+  OrderWarehousePickSummary,
+  Priority,
+} from "@prisma/client";
 import { OrderCard } from "~/components/board/OrderCard";
 import type { BoardCard } from "~/domain/orders/board-query.server";
 
@@ -23,6 +29,20 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     isWaitingOnCustomer: false,
     hasCustomerResponseAlert: false,
     isApprovedNotExported: false,
+    hasFailedProofDelivery: false,
+    hasMissingProductionArtwork: false,
+    hasReexportRequired: false,
+    productionSummary: OrderProductionSummary.NOT_READY,
+    hasOpenProductionIssue: false,
+    productionAssignedStaffName: null,
+    hasActiveFreightShipment: false,
+    freightTrackingNumber: null,
+    freightShipment: null,
+    isCancelled: false,
+    warehousePickSummary: OrderWarehousePickSummary.NOT_STARTED,
+    hasOpenWarehouseIssue: false,
+    hasShortPickItems: false,
+    hasOpenExceptionCase: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,
@@ -33,6 +53,11 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
       requiringWorkCount: 0,
       noProofRequiredCount: 0,
       blockedCount: 0,
+      waitingOnCustomerCount: 0,
+      changesRequestedCount: 0,
+      approvedCount: 0,
+      readyForExportCount: 0,
+      exportedCount: 0,
       latestThumbnail: null,
       assignedStaffNames: [],
     },
@@ -44,7 +69,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
   };
 }
 
-function renderCard(card: BoardCard, canManage: boolean) {
+function renderCard(card: BoardCard, canManage: boolean, canCreateFreightShipments = false) {
   const Stub = createRoutesStub([
     {
       path: "/orders",
@@ -54,6 +79,7 @@ function renderCard(card: BoardCard, canManage: boolean) {
             card={card}
             canManage={canManage}
             canViewIntegrations={true}
+            canCreateFreightShipments={canCreateFreightShipments}
             isPending={false}
             onMove={vi.fn()}
           />
@@ -139,5 +165,112 @@ describe("OrderCard", () => {
     renderCard(makeCard(), false);
     expect(screen.queryByRole("button", { name: /drag #1001/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /move to/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a large, full-width proof preview in the Proof Approved column", () => {
+    renderCard(
+      makeCard({
+        columnKey: "proof_approved",
+        proofGroupSummary: {
+          activeGroupCount: 1,
+          readyCount: 0,
+          requiringWorkCount: 0,
+          noProofRequiredCount: 0,
+          blockedCount: 0,
+          waitingOnCustomerCount: 0,
+          changesRequestedCount: 0,
+          approvedCount: 1,
+          readyForExportCount: 0,
+          exportedCount: 0,
+          latestThumbnail: { assetId: "asset_1", mimeType: "image/png" },
+          assignedStaffNames: [],
+        },
+      }),
+      true,
+    );
+    const images = screen.getAllByRole("presentation", { hidden: true });
+    const largePreview = images.find((img) => img.className.includes("max-h-48"));
+    expect(largePreview).toBeDefined();
+    expect(largePreview).toHaveAttribute("src", "/proof-assets/asset_1");
+  });
+
+  it("keeps the small icon-sized proof thumbnail in every other column", () => {
+    renderCard(
+      makeCard({
+        columnKey: "new",
+        proofGroupSummary: {
+          activeGroupCount: 1,
+          readyCount: 1,
+          requiringWorkCount: 0,
+          noProofRequiredCount: 0,
+          blockedCount: 0,
+          waitingOnCustomerCount: 0,
+          changesRequestedCount: 0,
+          approvedCount: 0,
+          readyForExportCount: 0,
+          exportedCount: 0,
+          latestThumbnail: { assetId: "asset_1", mimeType: "image/png" },
+          assignedStaffNames: [],
+        },
+      }),
+      true,
+    );
+    const images = screen.getAllByRole("presentation", { hidden: true });
+    const largePreview = images.find((img) => img.className.includes("max-h-48"));
+    expect(largePreview).toBeUndefined();
+    const smallThumbnail = images.find((img) => img.className.includes("h-6 w-6"));
+    expect(smallThumbnail).toHaveAttribute("src", "/proof-assets/asset_1");
+  });
+
+  it("shows inline freight controls on a Pack-column card when permitted", () => {
+    renderCard(
+      makeCard({
+        workflowStatus: OrderStatus.READY_TO_PACK,
+        columnKey: "pack",
+        productionSummary: OrderProductionSummary.COMPLETE,
+      }),
+      true,
+      true,
+    );
+    expect(screen.getByText("Weight (kg)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Get rates" })).toBeInTheDocument();
+  });
+
+  it("hides inline freight controls on a Pack-column card without permission", () => {
+    renderCard(
+      makeCard({
+        workflowStatus: OrderStatus.READY_TO_PACK,
+        columnKey: "pack",
+        productionSummary: OrderProductionSummary.COMPLETE,
+      }),
+      true,
+      false,
+    );
+    expect(screen.queryByText("Weight (kg)")).not.toBeInTheDocument();
+  });
+
+  it("shows the existing shipment's status instead of the create form when one already exists", () => {
+    renderCard(
+      makeCard({
+        workflowStatus: OrderStatus.READY_TO_PACK,
+        columnKey: "pack",
+        productionSummary: OrderProductionSummary.COMPLETE,
+        freightShipment: {
+          id: "fs_1",
+          status: "CREATED",
+          trackingNumber: "TRACK123",
+          weightKg: 1.5,
+          heightM: null,
+          widthM: null,
+          lengthM: null,
+          carrierCode: "AusPost",
+          carrierServiceCode: "3D85",
+        },
+      }),
+      true,
+      true,
+    );
+    expect(screen.getByText(/Freight label created.*TRACK123/)).toBeInTheDocument();
+    expect(screen.queryByText("Weight (kg)")).not.toBeInTheDocument();
   });
 });

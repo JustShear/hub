@@ -3,6 +3,11 @@ import type { Route } from "./+types/login";
 import { db } from "~/lib/db.server";
 import { authenticateStaffUser } from "~/auth/authenticate.server";
 import { createUserSession, getStaffUserId } from "~/auth/staff-session.server";
+import {
+  checkLoginRateLimit,
+  clearLoginAttempts,
+  recordFailedLoginAttempt,
+} from "~/auth/login-rate-limit.server";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Sign in — Just Shear Production Hub" }];
@@ -37,15 +42,25 @@ export async function action({ request }: Route.ActionArgs) {
   const password = passwordValue;
   const redirectTo =
     typeof redirectToValue === "string" && redirectToValue ? redirectToValue : "/dashboard";
+  const requestIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+
+  const rateLimit = checkLoginRateLimit(email, requestIp);
+  if (!rateLimit.allowed) {
+    return {
+      error: "Too many failed sign-in attempts. Please wait a few minutes and try again.",
+    };
+  }
 
   const shop = await db.shop.findFirstOrThrow();
   const authenticated = await authenticateStaffUser(shop.id, email, password);
 
   if (!authenticated) {
+    recordFailedLoginAttempt(email, requestIp);
     // Deliberately generic — never reveal whether the email or the password was wrong.
     return { error: "Incorrect email or password." };
   }
 
+  clearLoginAttempts(email, requestIp);
   return createUserSession(authenticated.id, redirectTo);
 }
 

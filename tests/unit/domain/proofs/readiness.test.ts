@@ -55,16 +55,9 @@ describe("validateProofGroupReadiness", () => {
     expect(result.ready).toBe(false);
   });
 
-  it("is not ready when placement is missing for a non-unprinted decoration method", () => {
+  it("does not require placement — it's optional metadata, not a readiness gate", () => {
     const result = validateProofGroupReadiness(baseInput({ placement: null }));
-    expect(result.ready).toBe(false);
-    expect(result.issues.some((i) => i.includes("Placement"))).toBe(true);
-  });
-
-  it("does not require placement for the UNPRINTED decoration method (documented exception)", () => {
-    const result = validateProofGroupReadiness(
-      baseInput({ decorationMethod: "UNPRINTED", placement: null, requirementValue: "REQUIRED" }),
-    );
+    expect(result.ready).toBe(true);
     expect(result.issues.some((i) => i.includes("Placement"))).toBe(false);
   });
 

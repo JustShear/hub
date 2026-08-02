@@ -171,7 +171,7 @@ describe("orders board route (integration)", () => {
     const formData = new FormData();
     formData.set("_intent", "move");
     formData.set("orderId", order.id);
-    formData.set("targetColumnKey", "waiting_on_customer");
+    formData.set("targetColumnKey", "pack");
     formData.set("expectedWorkflowStatus", OrderStatus.NEW);
 
     const result = await action({
@@ -184,9 +184,9 @@ describe("orders board route (integration)", () => {
       context: {},
     } as never);
 
-    expect(result).toMatchObject({ ok: true, workflowStatus: OrderStatus.WAITING_CUSTOMER });
+    expect(result).toMatchObject({ ok: true, workflowStatus: OrderStatus.READY_TO_PACK });
     const updated = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
-    expect(updated.workflowStatus).toBe(OrderStatus.WAITING_CUSTOMER);
+    expect(updated.workflowStatus).toBe(OrderStatus.READY_TO_PACK);
   });
 
   it("rejects moving to a non-interactive column via the route action", async () => {

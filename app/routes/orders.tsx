@@ -22,6 +22,7 @@ import {
 } from "~/domain/orders/saved-views.server";
 import { BoardPage } from "~/components/board/BoardPage";
 import { formString } from "~/lib/form-data";
+import { usePollingRevalidation } from "~/hooks/use-polling-revalidation";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Orders — Just Shear Production Hub" }];
@@ -36,7 +37,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const url = new URL(request.url);
-  const { filters, sort, view } = parseBoardSearchParams(url.searchParams);
+  const { filters, sort, view, visibleColumns } = parseBoardSearchParams(url.searchParams);
   const canManage = hasPermission(staffUser, "board.manage");
 
   const board =
@@ -67,8 +68,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     view,
     filters,
     sort,
+    visibleColumns,
     canManage,
     canViewIntegrations: hasPermission(staffUser, "integrations.view"),
+    canCreateFreightShipments: hasPermission(staffUser, "freight_shipments.create"),
     board,
     special,
     filterOptions,
@@ -191,6 +194,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function OrdersBoard({ loaderData }: Route.ComponentProps) {
+  usePollingRevalidation();
   return (
     <>
       <BoardPage {...loaderData} />

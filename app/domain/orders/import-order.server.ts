@@ -259,11 +259,10 @@ export async function importShopifyOrder(
         });
 
         // Stop future reminders for anything already sent-pending on this
-        // order. No ProofVersion/ProofReminder rows exist until Milestones
-        // 09/10/17 are built, so this is a no-op today but correct once they do.
+        // order (Milestone 09's "do not remind a cancelled order" rule).
         await tx.proofReminder.updateMany({
           where: {
-            proofVersion: { proofGroup: { orderId: order.id } },
+            proofRequest: { orderId: order.id },
             sentAt: null,
             suppressed: false,
           },

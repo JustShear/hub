@@ -13,7 +13,9 @@ import { env } from "./lib/env.server";
 import { startJobPoller } from "./lib/job-poller.server";
 
 // Typography and design tokens (SRS Section 19.1) are wired up in Milestone 06.
-export const links: Route.LinksFunction = () => [];
+export const links: Route.LinksFunction = () => [
+  { rel: "icon", type: "image/png", href: "/favicon.png" },
+];
 
 // Loaders run server-only. Touching `env` here forces the fail-closed
 // validation in app/lib/env.server.ts to run on first request rather than

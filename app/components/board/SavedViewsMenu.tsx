@@ -17,6 +17,7 @@ export interface SavedViewsMenuProps {
   currentFilters: BoardFilters;
   currentSort: BoardSort;
   currentView: BoardView;
+  currentVisibleColumns: string[] | undefined;
 }
 
 type ViewMutationResponse =
@@ -30,6 +31,7 @@ export function SavedViewsMenu({
   currentFilters,
   currentSort,
   currentView,
+  currentVisibleColumns,
 }: SavedViewsMenuProps) {
   const navigate = useNavigate();
   const deleteFetcher = useFetcher();
@@ -41,6 +43,7 @@ export function SavedViewsMenu({
       view.config.filters,
       view.config.sort,
       view.config.view,
+      view.config.visibleColumns,
     );
     void navigate(`/orders?${params.toString()}`);
   }
@@ -130,6 +133,7 @@ export function SavedViewsMenu({
             filters: currentFilters,
             sort: currentSort,
             view: currentView,
+            visibleColumns: currentVisibleColumns,
             density: "comfortable",
           }}
           onClose={() => {

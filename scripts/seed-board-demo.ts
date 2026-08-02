@@ -12,6 +12,7 @@ import {
   ActorType,
   ArtworkAssetSourceType,
   AssignmentRole,
+  ChangeRequestCategory,
   DueDateSource,
   DueDateType,
   IntegrationFailureStatus,
@@ -30,6 +31,15 @@ import { createProofVersion } from "../app/domain/proofs/create-proof-version.se
 import { markProofVersionReady } from "../app/domain/proofs/mark-proof-version-ready.server";
 import { cancelProofVersion } from "../app/domain/proofs/cancel-proof-version.server";
 import { cancelProofGroup } from "../app/domain/proofs/cancel-proof-group.server";
+import { sendProofRequest } from "../app/domain/proofs/send-proof-request.server";
+import { recordCustomerProofResponse } from "../app/domain/proofs/record-customer-proof-response.server";
+import { revokeProofRequest } from "../app/domain/proofs/revoke-proof-request.server";
+import { suppressProofReminder } from "../app/domain/proofs/suppress-proof-reminder.server";
+import { dispatchDueProofReminders } from "../app/domain/proofs/dispatch-due-proof-reminders.server";
+import { createProductionArtwork } from "../app/domain/production/create-production-artwork.server";
+import { setProductionArtworkOrderLines } from "../app/domain/production/allocate-production-artwork-order-lines.server";
+import { markProductionArtworkReady } from "../app/domain/production/mark-production-artwork-ready.server";
+import { createExportBatch } from "../app/domain/production/create-export-batch.server";
 
 const DAY_MS = 86_400_000;
 
@@ -502,57 +512,256 @@ async function main() {
         { productTitle: "Unprinted Tee", quantity: 5, sku: "TEE-BLK" },
       ],
     },
+    {
+      // Milestone 09 (Customer Proof Portal and Responses) manual-
+      // verification fixture. This order's lines are the pool the
+      // post-loop proof-request block below links against.
+      orderNumber: "#9021",
+      customerName: "Demo Customer Twenty-One",
+      customerEmail: "demo.customer21@justshear.example",
+      tags: ["customer-proofing"],
+      workflowStatus: OrderStatus.WAITING_CUSTOMER,
+      proofSummary: OrderProofSummary.WAITING_ON_CUSTOMER,
+      priority: Priority.NORMAL,
+      lines: [
+        {
+          productTitle: "Crew Jumper",
+          variantTitle: "Grey / Large",
+          quantity: 15,
+          sku: "JUMP-GRY",
+          imageUrl: SHIRT_IMAGE,
+        },
+        {
+          productTitle: "Snapback Cap",
+          variantTitle: "Black / One Size",
+          quantity: 15,
+          sku: "CAP-BLK",
+          imageUrl: CAP_IMAGE,
+        },
+        {
+          productTitle: "Bomber Jacket",
+          variantTitle: "Navy / Medium",
+          quantity: 8,
+          sku: "BOMB-NVY",
+          imageUrl: HOODIE_IMAGE,
+        },
+      ],
+    },
+    {
+      // Milestone 10 (Export for Print and Production Artwork) manual-
+      // verification fixture. This order's lines are the pool the post-loop
+      // production-artwork block below links against.
+      orderNumber: "#9022",
+      customerName: "Demo Customer Twenty-Two",
+      customerEmail: "demo.customer22@justshear.example",
+      tags: ["export-for-print"],
+      workflowStatus: OrderStatus.READY_FOR_EXPORT,
+      proofSummary: OrderProofSummary.PARTIALLY_APPROVED,
+      priority: Priority.NORMAL,
+      lines: [
+        {
+          productTitle: "Varsity Jacket",
+          variantTitle: "Maroon / Large",
+          quantity: 12,
+          sku: "VARS-MAR",
+          imageUrl: HOODIE_IMAGE,
+        },
+        {
+          productTitle: "Beanie",
+          variantTitle: "Black / One Size",
+          quantity: 12,
+          sku: "BEAN-BLK",
+          imageUrl: CAP_IMAGE,
+        },
+      ],
+    },
   ];
 
-  // Clean up any previously-seeded #9020 proof groups BEFORE the main loop
-  // below deletes and recreates that order's lines — ProofGroupOrderLine
-  // has a foreign key to ShopifyOrderLine, so this must happen first, not
-  // after. Skipped entirely on a first-ever run, when #9020 doesn't exist yet.
-  const existingOrder9020 = await db.shopifyOrder.findFirst({
-    where: { shopId: shop.id, orderNumber: "#9020" },
-    select: { id: true },
-  });
-  if (existingOrder9020) {
+  // Clean up any previously-seeded proof-domain rows for these two orders
+  // BEFORE the main loop below deletes and recreates their lines —
+  // ProofGroupOrderLine has a foreign key to ShopifyOrderLine, so this must
+  // happen first, not after. Skipped entirely on a first-ever run, when
+  // neither order exists yet. #9021 (Milestone 09's customer proof-request
+  // scenarios) is cleaned up the same way as #9020 (Milestone 08's
+  // internal-only proof groups) since both attach ProofGroup rows to lines
+  // this loop is about to delete and recreate.
+  for (const orderNumber of ["#9020", "#9021", "#9022"]) {
+    const existingOrder = await db.shopifyOrder.findFirst({
+      where: { shopId: shop.id, orderNumber },
+      select: { id: true },
+    });
+    if (!existingOrder) continue;
+
     const existingGroupIds = (
       await db.proofGroup.findMany({
-        where: { orderId: existingOrder9020.id },
+        where: { orderId: existingOrder.id },
         select: { id: true },
       })
     ).map((g) => g.id);
-    if (existingGroupIds.length > 0) {
-      const existingVersionIds = (
-        await db.proofVersion.findMany({
-          where: { proofGroupId: { in: existingGroupIds } },
+    if (existingGroupIds.length === 0) continue;
+
+    const existingVersionIds = (
+      await db.proofVersion.findMany({
+        where: { proofGroupId: { in: existingGroupIds } },
+        select: { id: true },
+      })
+    ).map((v) => v.id);
+
+    // Milestone 09 rows — proof requests bundle groups/versions from this
+    // order, so they must be cleared before the groups/versions themselves.
+    const existingRequestIds = (
+      await db.proofRequest.findMany({ where: { orderId: existingOrder.id }, select: { id: true } })
+    ).map((r) => r.id);
+    if (existingRequestIds.length > 0) {
+      const existingResponseIds = (
+        await db.customerProofResponse.findMany({
+          where: { proofRequestId: { in: existingRequestIds } },
           select: { id: true },
         })
-      ).map((v) => v.id);
-      if (existingVersionIds.length > 0) {
-        await db.proofVersionSourceAsset.deleteMany({
-          where: { proofVersionId: { in: existingVersionIds } },
+      ).map((r) => r.id);
+      if (existingResponseIds.length > 0) {
+        await db.customerResponseAsset.deleteMany({
+          where: { responseId: { in: existingResponseIds } },
         });
-        await db.proofAsset.deleteMany({ where: { proofVersionId: { in: existingVersionIds } } });
-        await db.proofNote.deleteMany({ where: { proofVersionId: { in: existingVersionIds } } });
-        // Clear the self-referential FK before deleting so neither
-        // direction of the supersession link blocks the delete.
-        await db.proofVersion.updateMany({
-          where: { id: { in: existingVersionIds } },
-          data: { supersededByVersionId: null },
-        });
-        await db.proofVersion.deleteMany({ where: { id: { in: existingVersionIds } } });
+        await db.customerProofResponse.deleteMany({ where: { id: { in: existingResponseIds } } });
       }
-      await db.proofGroupArtworkAsset.deleteMany({
-        where: { proofGroupId: { in: existingGroupIds } },
+      await db.proofReminder.deleteMany({ where: { proofRequestId: { in: existingRequestIds } } });
+      await db.klaviyoDispatch.deleteMany({
+        where: { proofRequestId: { in: existingRequestIds } },
       });
-      await db.proofGroupOrderLine.deleteMany({
-        where: { proofGroupId: { in: existingGroupIds } },
+      await db.proofRequestGroup.deleteMany({
+        where: { proofRequestId: { in: existingRequestIds } },
       });
-      await db.proofNote.deleteMany({ where: { proofGroupId: { in: existingGroupIds } } });
-      await db.proofRequirement.deleteMany({ where: { proofGroupId: { in: existingGroupIds } } });
-      await db.integrationFailure.deleteMany({
-        where: { relatedProofGroupId: { in: existingGroupIds } },
-      });
-      await db.proofGroup.deleteMany({ where: { id: { in: existingGroupIds } } });
+      await db.proofRequest.deleteMany({ where: { id: { in: existingRequestIds } } });
     }
+
+    if (existingVersionIds.length > 0) {
+      await db.proofVersionSourceAsset.deleteMany({
+        where: { proofVersionId: { in: existingVersionIds } },
+      });
+      await db.proofAsset.deleteMany({ where: { proofVersionId: { in: existingVersionIds } } });
+      await db.proofNote.deleteMany({ where: { proofVersionId: { in: existingVersionIds } } });
+      // Clear the self-referential FK before deleting so neither
+      // direction of the supersession link blocks the delete.
+      await db.proofVersion.updateMany({
+        where: { id: { in: existingVersionIds } },
+        data: { supersededByVersionId: null },
+      });
+      await db.proofVersion.deleteMany({ where: { id: { in: existingVersionIds } } });
+    }
+    await db.proofGroupArtworkAsset.deleteMany({
+      where: { proofGroupId: { in: existingGroupIds } },
+    });
+    await db.proofGroupOrderLine.deleteMany({
+      where: { proofGroupId: { in: existingGroupIds } },
+    });
+    await db.proofNote.deleteMany({ where: { proofGroupId: { in: existingGroupIds } } });
+    await db.proofRequirement.deleteMany({ where: { proofGroupId: { in: existingGroupIds } } });
+    await db.integrationFailure.deleteMany({
+      where: { relatedProofGroupId: { in: existingGroupIds } },
+    });
+
+    // Milestone 11 rows — production jobs/tasks are auto-created from a
+    // successful export batch and reference its ExportBatchItem rows via a
+    // hard FK, so the full cascade must clear before exportBatchItem itself
+    // (same ordering bug/fix as tests/integration/domain/production/helpers.ts).
+    const existingJobIds = (
+      await db.productionJob.findMany({
+        where: { orderId: existingOrder.id },
+        select: { id: true },
+      })
+    ).map((j) => j.id);
+    if (existingJobIds.length > 0) {
+      const existingTaskIds = (
+        await db.productionTask.findMany({
+          where: { productionJobId: { in: existingJobIds } },
+          select: { id: true },
+        })
+      ).map((t) => t.id);
+      if (existingTaskIds.length > 0) {
+        await db.productionQuantityUpdate.deleteMany({
+          where: { productionTaskId: { in: existingTaskIds } },
+        });
+        const existingQualityCheckIds = (
+          await db.productionQualityCheck.findMany({
+            where: { productionTaskId: { in: existingTaskIds } },
+            select: { id: true },
+          })
+        ).map((q) => q.id);
+        if (existingQualityCheckIds.length > 0) {
+          await db.productionQualityCheckAttachment.deleteMany({
+            where: { qualityCheckId: { in: existingQualityCheckIds } },
+          });
+          await db.productionQualityCheck.deleteMany({
+            where: { id: { in: existingQualityCheckIds } },
+          });
+        }
+        await db.productionNote.deleteMany({
+          where: { productionTaskId: { in: existingTaskIds } },
+        });
+      }
+      const existingIssueIds = (
+        await db.productionIssue.findMany({
+          where: {
+            OR: [
+              { productionJobId: { in: existingJobIds } },
+              { productionTaskId: { in: existingTaskIds } },
+            ],
+          },
+          select: { id: true },
+        })
+      ).map((i) => i.id);
+      if (existingIssueIds.length > 0) {
+        await db.productionIssueAttachment.deleteMany({
+          where: { issueId: { in: existingIssueIds } },
+        });
+        await db.productionIssue.deleteMany({ where: { id: { in: existingIssueIds } } });
+      }
+      await db.productionNote.deleteMany({ where: { productionJobId: { in: existingJobIds } } });
+      if (existingTaskIds.length > 0) {
+        await db.productionTask.updateMany({
+          where: { id: { in: existingTaskIds } },
+          data: { dependsOnTaskId: null },
+        });
+        await db.productionTask.deleteMany({ where: { id: { in: existingTaskIds } } });
+      }
+      await db.productionJob.deleteMany({ where: { id: { in: existingJobIds } } });
+    }
+
+    // Milestone 10 rows — export batches reference production artwork,
+    // which references the proof group, so both must clear before the
+    // groups themselves.
+    const existingExportBatchIds = (
+      await db.exportBatch.findMany({ where: { orderId: existingOrder.id }, select: { id: true } })
+    ).map((b) => b.id);
+    if (existingExportBatchIds.length > 0) {
+      await db.exportBatchItem.deleteMany({
+        where: { exportBatchId: { in: existingExportBatchIds } },
+      });
+      await db.exportBatch.updateMany({
+        where: { id: { in: existingExportBatchIds } },
+        data: { previousBatchId: null },
+      });
+      await db.exportBatch.deleteMany({ where: { id: { in: existingExportBatchIds } } });
+    }
+    const existingArtworkIds = (
+      await db.productionArtwork.findMany({
+        where: { proofGroupId: { in: existingGroupIds } },
+        select: { id: true },
+      })
+    ).map((a) => a.id);
+    if (existingArtworkIds.length > 0) {
+      await db.productionArtworkOrderLine.deleteMany({
+        where: { productionArtworkId: { in: existingArtworkIds } },
+      });
+      await db.productionArtwork.updateMany({
+        where: { id: { in: existingArtworkIds } },
+        data: { supersededByArtworkId: null },
+      });
+      await db.productionArtwork.deleteMany({ where: { id: { in: existingArtworkIds } } });
+    }
+
+    await db.proofGroup.deleteMany({ where: { id: { in: existingGroupIds } } });
   }
 
   for (const demo of demoOrders) {
@@ -1100,9 +1309,536 @@ async function main() {
     staffUserId: demoStaff.id,
   });
 
+  // ---------------------------------------------------------------------
+  // Milestone 09 (Customer Proof Portal and Responses) — order #9021's
+  // proof-request scenarios. Built via the real domain functions
+  // (sendProofRequest, recordCustomerProofResponse, revokeProofRequest,
+  // suppressProofReminder, dispatchDueProofReminders), never raw inserts,
+  // so the token/idempotency/response pipeline is genuinely exercised —
+  // matching this milestone's own "no fake customer actions" rule.
+  //
+  // Klaviyo delivery will fail in local dev (no real KLAVIYO_API_KEY) —
+  // that's expected, and itself an honest demonstration of the "email
+  // delivery failure" scenario rather than something faked separately.
+  // ---------------------------------------------------------------------
+  const order9021 = await db.shopifyOrder.findFirstOrThrow({
+    where: { shopId: shop.id, orderNumber: "#9021" },
+    include: { lines: { orderBy: { createdAt: "asc" } } },
+  });
+  const [jumperLine, cap21Line, jacketLine] = order9021.lines;
+  if (!jumperLine || !cap21Line || !jacketLine) {
+    throw new Error("Expected #9021 to have 3 lines for the Milestone 09 proof-request fixtures.");
+  }
+
+  async function seedReadyGroup(
+    name: string,
+    lineId: string,
+    placement: string,
+  ): Promise<{ proofGroupId: string; proofVersionId: string }> {
+    const group = await createProofGroup({
+      shopId: shop.id,
+      orderId: order9021.id,
+      name,
+      decorationMethod: "EMBROIDERY",
+      placement,
+      description: null,
+      requirement: "REQUIRED",
+      noProofReason: null,
+      noProofReasonNote: null,
+      orderLineIds: [lineId],
+      assetIds: [],
+      assignedStaffId: demoStaff.id,
+      dueDate: null,
+      priority: Priority.NORMAL,
+      staffUserId: demoStaff.id,
+    });
+    if (group.outcome !== "created") {
+      throw new Error(`Failed to seed "${name}": ${JSON.stringify(group)}`);
+    }
+    const version = await createProofVersion({
+      shopId: shop.id,
+      proofGroupId: group.proofGroupId,
+      fileBuffer: DEMO_PNG_BYTES,
+      originalFilename: `${name.toLowerCase().replace(/\s+/g, "-")}.png`,
+      internalNote: null,
+      sourceAssetIds: [],
+      idempotencyKey: null,
+      staffUserId: demoStaff.id,
+    });
+    if (version.outcome !== "created") {
+      throw new Error(`Failed to seed a version for "${name}": ${JSON.stringify(version)}`);
+    }
+    const ready = await markProofVersionReady({
+      shopId: shop.id,
+      proofVersionId: version.proofVersionId,
+      staffUserId: demoStaff.id,
+    });
+    if (ready.outcome !== "ready") {
+      throw new Error(`Failed to mark "${name}" ready: ${JSON.stringify(ready)}`);
+    }
+    return { proofGroupId: group.proofGroupId, proofVersionId: version.proofVersionId };
+  }
+
+  // Scenario A — one proof request bundling three groups: one the customer
+  // approves, one they request changes on (with a marked-up file), and one
+  // left awaiting response. Demonstrates multi-group bundling, partial
+  // response, and independent per-group outcomes within a single request.
+  const frontLogo = await seedReadyGroup("Front logo embroidery", jumperLine.id, "Left chest");
+  const capBadge = await seedReadyGroup("Cap badge embroidery", cap21Line.id, "Front badge");
+  const jacketPatch = await seedReadyGroup("Jacket back patch", jacketLine.id, "Full back");
+
+  const multiGroupSend = await sendProofRequest({
+    shopId: shop.id,
+    orderId: order9021.id,
+    proofGroupIds: [frontLogo.proofGroupId, capBadge.proofGroupId, jacketPatch.proofGroupId],
+    staffMessage: "Here's the artwork for your recent order — please take a look when you can.",
+    staffUserId: demoStaff.id,
+  });
+  if (multiGroupSend.outcome !== "sent") {
+    throw new Error(
+      `Failed to send the multi-group proof request: ${JSON.stringify(multiGroupSend)}`,
+    );
+  }
+
+  const approveFrontLogo = await recordCustomerProofResponse({
+    rawToken: multiGroupSend.rawToken,
+    proofGroupId: frontLogo.proofGroupId,
+    responseType: "APPROVED",
+    customerNote: null,
+    changeCategories: [],
+    acknowledgedApproval: true,
+    idempotencyKey: `seed-approve-${frontLogo.proofGroupId}`,
+    requestIp: null,
+    requestUserAgent: "seed-script (Milestone 09 fixtures)",
+    files: [],
+  });
+  if (approveFrontLogo.outcome === "rejected") {
+    throw new Error(`Failed to seed the front-logo approval: ${approveFrontLogo.reason}`);
+  }
+
+  const requestChangesCapBadge = await recordCustomerProofResponse({
+    rawToken: multiGroupSend.rawToken,
+    proofGroupId: capBadge.proofGroupId,
+    responseType: "CHANGES_REQUESTED",
+    customerNote: "Could the badge be centred a little higher on the cap, please?",
+    changeCategories: [ChangeRequestCategory.PLACEMENT],
+    acknowledgedApproval: false,
+    idempotencyKey: `seed-changes-${capBadge.proofGroupId}`,
+    requestIp: null,
+    requestUserAgent: "seed-script (Milestone 09 fixtures)",
+    files: [{ buffer: DEMO_PNG_BYTES, originalFilename: "cap-badge-markup.png" }],
+  });
+  if (requestChangesCapBadge.outcome === "rejected") {
+    throw new Error(
+      `Failed to seed the cap-badge change request: ${requestChangesCapBadge.reason}`,
+    );
+  }
+  // jacketPatch is deliberately left unresolved — "awaiting customer response".
+
+  // Scenario B — a single-group request the customer never got to act on
+  // before staff revoked the link (e.g. sent to the wrong address).
+  const hemFinish = await seedReadyGroup("Hem finish embroidery", jumperLine.id, "Hem");
+  const hemSend = await sendProofRequest({
+    shopId: shop.id,
+    orderId: order9021.id,
+    proofGroupIds: [hemFinish.proofGroupId],
+    staffMessage: null,
+    staffUserId: demoStaff.id,
+  });
+  if (hemSend.outcome !== "sent") {
+    throw new Error(`Failed to send the hem-finish proof request: ${JSON.stringify(hemSend)}`);
+  }
+  const hemRevoke = await revokeProofRequest({
+    shopId: shop.id,
+    proofRequestId: hemSend.proofRequestId,
+    reason: "Sent to an outdated email address on file — resending to the correct one separately.",
+    staffUserId: demoStaff.id,
+  });
+  if (hemRevoke.outcome === "rejected") {
+    throw new Error(`Failed to revoke the hem-finish proof request: ${hemRevoke.reason}`);
+  }
+
+  // Scenario C — an expired link. Real expiry is PROOF_TOKEN_EXPIRY_DAYS
+  // (default 14) in the future; time can't genuinely pass in a seed
+  // script, so the expiry is deliberately backdated here to simulate it —
+  // an honest simulation of elapsed time, not a fabricated status.
+  const zipperPull = await seedReadyGroup("Zipper pull embroidery", jacketLine.id, "Zipper pull");
+  const zipperSend = await sendProofRequest({
+    shopId: shop.id,
+    orderId: order9021.id,
+    proofGroupIds: [zipperPull.proofGroupId],
+    staffMessage: null,
+    staffUserId: demoStaff.id,
+  });
+  if (zipperSend.outcome !== "sent") {
+    throw new Error(`Failed to send the zipper-pull proof request: ${JSON.stringify(zipperSend)}`);
+  }
+  await db.proofRequest.update({
+    where: { id: zipperSend.proofRequestId },
+    data: { tokenExpiresAt: new Date(now.getTime() - 1 * DAY_MS) },
+  });
+
+  // Scenario D — reminder suppressed by staff before it was ever due.
+  const cuffEmbroidery = await seedReadyGroup("Cuff embroidery", jumperLine.id, "Cuff");
+  const cuffSend = await sendProofRequest({
+    shopId: shop.id,
+    orderId: order9021.id,
+    proofGroupIds: [cuffEmbroidery.proofGroupId],
+    staffMessage: null,
+    staffUserId: demoStaff.id,
+  });
+  if (cuffSend.outcome !== "sent") {
+    throw new Error(
+      `Failed to send the cuff-embroidery proof request: ${JSON.stringify(cuffSend)}`,
+    );
+  }
+  const cuffSuppress = await suppressProofReminder({
+    shopId: shop.id,
+    proofRequestId: cuffSend.proofRequestId,
+    reason: "Customer already confirmed by phone that this is fine — no reminder needed.",
+    staffUserId: demoStaff.id,
+  });
+  if (cuffSuppress.outcome === "rejected") {
+    throw new Error(`Failed to suppress the cuff-embroidery reminder: ${cuffSuppress.reason}`);
+  }
+
+  // Scenario E — the automatic reminder has actually fired. Its
+  // scheduledFor is backdated (same honest "simulate elapsed time"
+  // approach as Scenario C) and then genuinely dispatched through the same
+  // poller function production uses, rather than hand-writing a "sent"
+  // row directly.
+  const collarLabel = await seedReadyGroup("Collar label print", cap21Line.id, "Inside collar");
+  const collarSend = await sendProofRequest({
+    shopId: shop.id,
+    orderId: order9021.id,
+    proofGroupIds: [collarLabel.proofGroupId],
+    staffMessage: null,
+    staffUserId: demoStaff.id,
+  });
+  if (collarSend.outcome !== "sent") {
+    throw new Error(`Failed to send the collar-label proof request: ${JSON.stringify(collarSend)}`);
+  }
+  await db.proofReminder.updateMany({
+    where: { proofRequestId: collarSend.proofRequestId },
+    data: { scheduledFor: new Date(now.getTime() - 1 * 60 * 60 * 1000) },
+  });
+  await dispatchDueProofReminders();
+
+  // Scenario F — staff created a new version after sending, superseding
+  // the version the customer's link actually points to. The original
+  // request becomes non-actionable for this group ("a newer proof is now
+  // available") without anything being deleted.
+  const pocketEmbroidery = await seedReadyGroup("Pocket embroidery", jacketLine.id, "Chest pocket");
+  const pocketSend = await sendProofRequest({
+    shopId: shop.id,
+    orderId: order9021.id,
+    proofGroupIds: [pocketEmbroidery.proofGroupId],
+    staffMessage: null,
+    staffUserId: demoStaff.id,
+  });
+  if (pocketSend.outcome !== "sent") {
+    throw new Error(
+      `Failed to send the pocket-embroidery proof request: ${JSON.stringify(pocketSend)}`,
+    );
+  }
+  const pocketV2 = await createProofVersion({
+    shopId: shop.id,
+    proofGroupId: pocketEmbroidery.proofGroupId,
+    fileBuffer: DEMO_PNG_BYTES,
+    originalFilename: "pocket-embroidery-v2.png",
+    internalNote:
+      "Noticed a placement error right after sending — corrected before the customer replied.",
+    sourceAssetIds: [],
+    idempotencyKey: null,
+    staffUserId: demoStaff.id,
+  });
+  if (pocketV2.outcome !== "created") {
+    throw new Error(`Failed to seed pocket-embroidery v2: ${JSON.stringify(pocketV2)}`);
+  }
+
+  // ---------------------------------------------------------------------
+  // Milestone 10 (Export for Print and Production Artwork) — order #9022's
+  // production-artwork and export-batch scenarios. Built via the real
+  // domain functions (createProofGroup/createProofVersion/
+  // sendProofRequest/recordCustomerProofResponse/setProofRequirement/
+  // createProductionArtwork/markProductionArtworkReady/createExportBatch),
+  // never raw inserts, matching this milestone's own "no fake customer
+  // actions" rule and the same precedent set by #9020/#9021 above.
+  // ---------------------------------------------------------------------
+  const order9022 = await db.shopifyOrder.findFirstOrThrow({
+    where: { shopId: shop.id, orderNumber: "#9022" },
+    include: { lines: { orderBy: { createdAt: "asc" } } },
+  });
+  const [varsityJacketLine, beanieLine] = order9022.lines;
+  if (!varsityJacketLine || !beanieLine) {
+    throw new Error(
+      "Expected #9022 to have 2 lines for the Milestone 10 production-artwork fixtures.",
+    );
+  }
+
+  async function seedApprovedGroup(
+    name: string,
+    lineId: string,
+    placement: string,
+  ): Promise<string> {
+    const group = await createProofGroup({
+      shopId: shop.id,
+      orderId: order9022.id,
+      name,
+      decorationMethod: "EMBROIDERY",
+      placement,
+      description: null,
+      requirement: "REQUIRED",
+      noProofReason: null,
+      noProofReasonNote: null,
+      orderLineIds: [lineId],
+      assetIds: [],
+      assignedStaffId: demoStaff.id,
+      dueDate: null,
+      priority: Priority.NORMAL,
+      staffUserId: demoStaff.id,
+    });
+    if (group.outcome !== "created") {
+      throw new Error(`Failed to seed "${name}": ${JSON.stringify(group)}`);
+    }
+    const version = await createProofVersion({
+      shopId: shop.id,
+      proofGroupId: group.proofGroupId,
+      fileBuffer: DEMO_PNG_BYTES,
+      originalFilename: `${name.toLowerCase().replace(/\s+/g, "-")}.png`,
+      internalNote: null,
+      sourceAssetIds: [],
+      idempotencyKey: null,
+      staffUserId: demoStaff.id,
+    });
+    if (version.outcome !== "created") {
+      throw new Error(`Failed to seed a version for "${name}": ${JSON.stringify(version)}`);
+    }
+    const ready = await markProofVersionReady({
+      shopId: shop.id,
+      proofVersionId: version.proofVersionId,
+      staffUserId: demoStaff.id,
+    });
+    if (ready.outcome !== "ready") {
+      throw new Error(`Failed to mark "${name}" ready: ${JSON.stringify(ready)}`);
+    }
+    const send = await sendProofRequest({
+      shopId: shop.id,
+      orderId: order9022.id,
+      proofGroupIds: [group.proofGroupId],
+      staffMessage: null,
+      staffUserId: demoStaff.id,
+    });
+    if (send.outcome !== "sent") {
+      throw new Error(`Failed to send proof request for "${name}": ${JSON.stringify(send)}`);
+    }
+    const approve = await recordCustomerProofResponse({
+      rawToken: send.rawToken,
+      proofGroupId: group.proofGroupId,
+      responseType: "APPROVED",
+      customerNote: null,
+      changeCategories: [],
+      acknowledgedApproval: true,
+      idempotencyKey: `seed-approve-${group.proofGroupId}`,
+      requestIp: null,
+      requestUserAgent: "seed-script (Milestone 10 fixtures)",
+      files: [],
+    });
+    if (approve.outcome === "rejected") {
+      throw new Error(`Failed to seed the "${name}" approval: ${approve.reason}`);
+    }
+    return group.proofGroupId;
+  }
+
+  // Scenario A — approved, no production artwork prepared yet. Exercises
+  // the Kanban board's "missing production artwork" indicator.
+  await seedApprovedGroup("Front chest print", varsityJacketLine.id, "Left chest");
+
+  // Scenario B — approved, a production artwork revision has been
+  // uploaded but is still in draft (not yet marked ready for export).
+  const sleeveGroupId = await seedApprovedGroup(
+    "Sleeve embroidery",
+    varsityJacketLine.id,
+    "Left sleeve",
+  );
+  const sleeveArtwork = await createProductionArtwork({
+    shopId: shop.id,
+    proofGroupId: sleeveGroupId,
+    fileBuffer: DEMO_PDF_BYTES,
+    originalFilename: "sleeve-embroidery-production.pdf",
+    decorationMethod: null,
+    placement: "Left sleeve",
+    productionMetadata: null,
+    staffUserId: demoStaff.id,
+    idempotencyKey: null,
+  });
+  if (sleeveArtwork.outcome !== "created") {
+    throw new Error(
+      `Failed to seed sleeve-embroidery production artwork: ${JSON.stringify(sleeveArtwork)}`,
+    );
+  }
+
+  // Scenario C — legitimately no-proof-required (a standard approved logo,
+  // repeated from a previous job), with production artwork prepared,
+  // allocated to its order line, and marked ready for export — this is the
+  // group the export-batch demo below actually exports.
+  const capGroupResult = await createProofGroup({
+    shopId: shop.id,
+    orderId: order9022.id,
+    name: "Cap embroidery",
+    decorationMethod: "EMBROIDERY",
+    placement: "Front badge",
+    description: null,
+    requirement: "NOT_REQUIRED",
+    noProofReason: "APPROVED_STANDARD_LOGO",
+    noProofReasonNote: "Standard approved club logo, run on every order this season.",
+    orderLineIds: [beanieLine.id],
+    assetIds: [],
+    assignedStaffId: demoStaff.id,
+    dueDate: null,
+    priority: Priority.NORMAL,
+    staffUserId: demoStaff.id,
+  });
+  if (capGroupResult.outcome !== "created") {
+    throw new Error(`Failed to seed "Cap embroidery": ${JSON.stringify(capGroupResult)}`);
+  }
+  const capArtwork = await createProductionArtwork({
+    shopId: shop.id,
+    proofGroupId: capGroupResult.proofGroupId,
+    fileBuffer: DEMO_PDF_BYTES,
+    originalFilename: "cap-embroidery-production.pdf",
+    decorationMethod: null,
+    placement: "Front badge",
+    productionMetadata: null,
+    staffUserId: demoStaff.id,
+    idempotencyKey: null,
+  });
+  if (capArtwork.outcome !== "created") {
+    throw new Error(
+      `Failed to seed cap-embroidery production artwork: ${JSON.stringify(capArtwork)}`,
+    );
+  }
+  const capAllocation = await setProductionArtworkOrderLines({
+    shopId: shop.id,
+    productionArtworkId: capArtwork.productionArtworkId,
+    allocations: [{ orderLineId: beanieLine.id, quantity: beanieLine.quantity }],
+    staffUserId: demoStaff.id,
+  });
+  if (capAllocation.outcome !== "set") {
+    throw new Error(
+      `Failed to allocate cap-embroidery order lines: ${JSON.stringify(capAllocation)}`,
+    );
+  }
+  const capReady = await markProductionArtworkReady({
+    shopId: shop.id,
+    productionArtworkId: capArtwork.productionArtworkId,
+    staffUserId: demoStaff.id,
+  });
+  if (capReady.outcome !== "ready") {
+    throw new Error(`Failed to mark cap-embroidery artwork ready: ${JSON.stringify(capReady)}`);
+  }
+
+  // Scenario D — approved, exported once, then corrected and marked ready
+  // again — exercises the Kanban board's "re-export required" indicator
+  // and the drawer's re-export workflow.
+  const jacketLogoGroupId = await seedApprovedGroup(
+    "Jacket back logo",
+    varsityJacketLine.id,
+    "Full back",
+  );
+  const jacketArtworkV1 = await createProductionArtwork({
+    shopId: shop.id,
+    proofGroupId: jacketLogoGroupId,
+    fileBuffer: DEMO_PDF_BYTES,
+    originalFilename: "jacket-back-logo-production-v1.pdf",
+    decorationMethod: null,
+    placement: "Full back",
+    productionMetadata: null,
+    staffUserId: demoStaff.id,
+    idempotencyKey: null,
+  });
+  if (jacketArtworkV1.outcome !== "created") {
+    throw new Error(
+      `Failed to seed jacket-back-logo production artwork: ${JSON.stringify(jacketArtworkV1)}`,
+    );
+  }
+  const jacketAllocationV1 = await setProductionArtworkOrderLines({
+    shopId: shop.id,
+    productionArtworkId: jacketArtworkV1.productionArtworkId,
+    allocations: [{ orderLineId: varsityJacketLine.id, quantity: varsityJacketLine.quantity }],
+    staffUserId: demoStaff.id,
+  });
+  if (jacketAllocationV1.outcome !== "set") {
+    throw new Error(
+      `Failed to allocate jacket-back-logo order lines: ${JSON.stringify(jacketAllocationV1)}`,
+    );
+  }
+  const jacketReadyV1 = await markProductionArtworkReady({
+    shopId: shop.id,
+    productionArtworkId: jacketArtworkV1.productionArtworkId,
+    staffUserId: demoStaff.id,
+  });
+  if (jacketReadyV1.outcome !== "ready") {
+    throw new Error(
+      `Failed to mark jacket-back-logo artwork v1 ready: ${JSON.stringify(jacketReadyV1)}`,
+    );
+  }
+  const jacketExport = await createExportBatch({
+    shopId: shop.id,
+    orderId: order9022.id,
+    proofGroupIds: [jacketLogoGroupId],
+    destination: "Embroidery vendor — via email",
+    staffUserId: demoStaff.id,
+    idempotencyKey: `seed-export-${jacketLogoGroupId}`,
+  });
+  if (jacketExport.outcome !== "exported") {
+    throw new Error(`Failed to export jacket-back-logo: ${JSON.stringify(jacketExport)}`);
+  }
+  // A correction is prepared after the export above — this new revision
+  // supersedes nothing (the exported v1 stays immutable) but re-promotes
+  // the group back to READY_FOR_EXPORT once marked ready.
+  const jacketArtworkV2 = await createProductionArtwork({
+    shopId: shop.id,
+    proofGroupId: jacketLogoGroupId,
+    fileBuffer: DEMO_PDF_BYTES,
+    originalFilename: "jacket-back-logo-production-v2-corrected.pdf",
+    decorationMethod: null,
+    placement: "Full back",
+    productionMetadata: null,
+    staffUserId: demoStaff.id,
+    idempotencyKey: null,
+  });
+  if (jacketArtworkV2.outcome !== "created") {
+    throw new Error(
+      `Failed to seed jacket-back-logo production artwork v2: ${JSON.stringify(jacketArtworkV2)}`,
+    );
+  }
+  const jacketAllocationV2 = await setProductionArtworkOrderLines({
+    shopId: shop.id,
+    productionArtworkId: jacketArtworkV2.productionArtworkId,
+    allocations: [{ orderLineId: varsityJacketLine.id, quantity: varsityJacketLine.quantity }],
+    staffUserId: demoStaff.id,
+  });
+  if (jacketAllocationV2.outcome !== "set") {
+    throw new Error(
+      `Failed to allocate jacket-back-logo v2 order lines: ${JSON.stringify(jacketAllocationV2)}`,
+    );
+  }
+  const jacketReadyV2 = await markProductionArtworkReady({
+    shopId: shop.id,
+    productionArtworkId: jacketArtworkV2.productionArtworkId,
+    staffUserId: demoStaff.id,
+  });
+  if (jacketReadyV2.outcome !== "ready") {
+    throw new Error(
+      `Failed to mark jacket-back-logo artwork v2 ready: ${JSON.stringify(jacketReadyV2)}`,
+    );
+  }
+
   console.log(
-    `Seeded ${demoOrders.length} demo orders (#9001–#9020) for Kanban board and order drawer manual verification, ` +
-      `including 7 proof groups on #9020.`,
+    `Seeded ${demoOrders.length} demo orders (#9001–#9022) for Kanban board and order drawer manual verification, ` +
+      `including 7 proof groups on #9020, 8 proof groups across 6 proof-request scenarios on #9021, ` +
+      `and 4 production-artwork/export scenarios on #9022.`,
   );
   console.log('Delete them with: DELETE FROM "ShopifyOrder" WHERE "orderNumber" LIKE \'#90%\';');
 }

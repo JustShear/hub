@@ -6,16 +6,24 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
   AlertCircle,
+  AlertOctagon,
   CalendarClock,
   Clock,
+  FileWarning,
+  Factory,
   GripVertical,
+  MailWarning,
   MessageSquareWarning,
+  PackageSearch,
+  RefreshCw,
   ShieldAlert,
+  Truck,
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import type { BoardCard } from "~/domain/orders/board-query.server";
 import type { BoardColumnKey } from "~/domain/orders/board-columns";
 import { PROOF_SUMMARY_LABELS } from "~/domain/orders/labels";
+import { ORDER_PRODUCTION_SUMMARY_LABELS } from "~/domain/production/labels";
 import { formatAuDate } from "~/lib/dates";
 import {
   DueDateIndicator,
@@ -25,11 +33,13 @@ import {
 } from "~/components/board/CardBadges";
 import { CardThumbnails } from "~/components/board/CardThumbnails";
 import { MoveToMenu } from "~/components/board/MoveToMenu";
+import { PackCardFreightControls } from "~/components/board/PackCardFreightControls";
 
 export interface OrderCardProps {
   card: BoardCard;
   canManage: boolean;
   canViewIntegrations: boolean;
+  canCreateFreightShipments: boolean;
   isPending: boolean;
   onMove: (targetColumnKey: BoardColumnKey) => void;
 }
@@ -41,6 +51,7 @@ export function OrderCard({
   card,
   canManage,
   canViewIntegrations,
+  canCreateFreightShipments,
   isPending,
   onMove,
 }: OrderCardProps) {
@@ -64,6 +75,17 @@ export function OrderCard({
     card.isWaitingOnCustomer ||
     card.hasCustomerResponseAlert ||
     card.isApprovedNotExported ||
+    card.hasFailedProofDelivery ||
+    card.hasMissingProductionArtwork ||
+    card.hasReexportRequired ||
+    card.hasOpenProductionIssue ||
+    card.workflowStatus === "FULFILLED" ||
+    card.hasActiveFreightShipment ||
+    card.workflowStatus === "READY_TO_PACK" ||
+    card.hasOpenWarehouseIssue ||
+    card.hasShortPickItems ||
+    card.warehousePickSummary === "IN_PROGRESS" ||
+    card.hasOpenExceptionCase ||
     card.hasIntegrationIssue;
 
   return (
@@ -95,8 +117,17 @@ export function OrderCard({
 
       {card.tags.length > 0 ? <TagChips tags={card.tags} /> : null}
 
+      {card.columnKey === "proof_approved" && card.proofGroupSummary.latestThumbnail ? (
+        <img
+          src={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
+          alt=""
+          loading="lazy"
+          className="max-h-48 w-full rounded border border-border bg-page object-contain"
+        />
+      ) : null}
+
       <div className="flex items-center gap-2 text-xs text-muted">
-        {card.proofGroupSummary.latestThumbnail ? (
+        {card.columnKey !== "proof_approved" && card.proofGroupSummary.latestThumbnail ? (
           <img
             src={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
             alt=""
@@ -108,6 +139,18 @@ export function OrderCard({
           {PROOF_SUMMARY_LABELS[card.proofSummary]}
           {card.proofGroupCount > 0
             ? ` · ${card.proofGroupSummary.readyCount} ready · ${card.proofGroupSummary.requiringWorkCount} in progress${
+                card.proofGroupSummary.waitingOnCustomerCount > 0
+                  ? ` · ${card.proofGroupSummary.waitingOnCustomerCount} awaiting customer`
+                  : ""
+              }${
+                card.proofGroupSummary.changesRequestedCount > 0
+                  ? ` · ${card.proofGroupSummary.changesRequestedCount} changes requested`
+                  : ""
+              }${
+                card.proofGroupSummary.approvedCount > 0
+                  ? ` · ${card.proofGroupSummary.approvedCount} approved`
+                  : ""
+              }${
                 card.proofGroupSummary.noProofRequiredCount > 0
                   ? ` · ${card.proofGroupSummary.noProofRequiredCount} no proof required`
                   : ""
@@ -118,6 +161,15 @@ export function OrderCard({
       {card.proofGroupSummary.assignedStaffNames.length > 0 ? (
         <p className="text-xs text-muted">
           Artwork: {card.proofGroupSummary.assignedStaffNames.join(", ")}
+        </p>
+      ) : null}
+
+      {card.productionSummary !== "NOT_READY" ? (
+        <p className="text-xs text-muted">
+          <Link to="/production" className="hover:underline">
+            Production: {ORDER_PRODUCTION_SUMMARY_LABELS[card.productionSummary]}
+          </Link>
+          {card.productionAssignedStaffName ? ` · ${card.productionAssignedStaffName}` : ""}
         </p>
       ) : null}
 
@@ -142,6 +194,52 @@ export function OrderCard({
           {card.isApprovedNotExported ? (
             <IndicatorChip icon={AlertCircle} label="Approved — not yet exported" tone="warning" />
           ) : null}
+          {card.hasFailedProofDelivery ? (
+            <IndicatorChip icon={MailWarning} label="Proof email failed to send" tone="warning" />
+          ) : null}
+          {card.hasMissingProductionArtwork ? (
+            <IndicatorChip
+              icon={FileWarning}
+              label="Production artwork not prepared"
+              tone="warning"
+            />
+          ) : null}
+          {card.hasReexportRequired ? (
+            <IndicatorChip icon={RefreshCw} label="Re-export required" tone="warning" />
+          ) : null}
+          {card.hasOpenProductionIssue ? (
+            <Link
+              to="/production"
+              className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+            >
+              <IndicatorChip icon={Factory} label="Production issue" tone="error" />
+            </Link>
+          ) : null}
+          {card.hasActiveFreightShipment ? (
+            <IndicatorChip icon={Truck} label="Freight label created" tone="neutral" />
+          ) : null}
+          {card.workflowStatus === "READY_TO_PACK" ? (
+            <IndicatorChip icon={PackageSearch} label="Ready to pack" tone="success" />
+          ) : card.hasOpenWarehouseIssue ? (
+            <Link
+              to="/warehouse"
+              className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+            >
+              <IndicatorChip icon={PackageSearch} label="Warehouse issue" tone="error" />
+            </Link>
+          ) : card.hasShortPickItems ? (
+            <IndicatorChip icon={PackageSearch} label="Short pick" tone="warning" />
+          ) : card.warehousePickSummary === "IN_PROGRESS" ? (
+            <IndicatorChip icon={PackageSearch} label="Picking" tone="neutral" />
+          ) : null}
+          {card.hasOpenExceptionCase ? (
+            <Link
+              to="/exceptions"
+              className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+            >
+              <IndicatorChip icon={AlertOctagon} label="Exception case" tone="error" />
+            </Link>
+          ) : null}
           {card.hasIntegrationIssue ? (
             canViewIntegrations ? (
               <Link
@@ -155,6 +253,16 @@ export function OrderCard({
             )
           ) : null}
         </div>
+      ) : null}
+
+      {card.workflowStatus === "READY_TO_PACK" ? (
+        <PackCardFreightControls
+          orderId={card.id}
+          productionSummary={card.productionSummary}
+          isCancelled={card.isCancelled}
+          existingShipment={card.freightShipment}
+          canCreate={canCreateFreightShipments}
+        />
       ) : null}
 
       {canManage ? (

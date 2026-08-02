@@ -3,7 +3,7 @@ import { requireStaffUser } from "~/auth/staff-session.server";
 import { hasPermission } from "~/auth/rbac";
 import { db } from "~/lib/db.server";
 import { sanitizeDisplayFilename } from "~/domain/proofs/file-validation";
-import { localDiskStorageAdapter } from "~/adapters/storage/local-disk-storage.server";
+import { storageAdapter } from "~/adapters/storage/get-storage-adapter.server";
 
 // Every proof-file preview/download goes through this authenticated,
 // authorization-checked resource route rather than a permanent public
@@ -30,7 +30,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   let buffer: Buffer;
   try {
-    buffer = await localDiskStorageAdapter.getObjectBuffer(asset.storageKey);
+    buffer = await storageAdapter.getObjectBuffer(asset.storageKey);
   } catch {
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- React Router's documented convention for triggering an ErrorBoundary
     throw new Response("This proof file is unavailable in storage right now.", { status: 502 });

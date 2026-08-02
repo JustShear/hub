@@ -1,4 +1,4 @@
-import { ActorType, type Prisma, type PrismaClient } from "@prisma/client";
+import { ActorType, type OrderProofSummary, type Prisma, type PrismaClient } from "@prisma/client";
 import { OPEN_STATUSES } from "~/domain/integrations/record-failure.server";
 import { PROOF_SUMMARY_LABELS } from "~/domain/orders/labels";
 import {
@@ -35,6 +35,11 @@ async function loadGroupsForSummary(
     hasAnyVersion: g.versions.length > 0,
     isNoProofRequired: g.status === "NO_PROOF_REQUIRED",
     hasOpenIntegrationFailure: blockedGroupIds.has(g.id),
+    isWaitingOnCustomer: g.status === "SENT" || g.status === "VIEWED",
+    isApproved: g.status === "APPROVED",
+    isChangesRequested: g.status === "CHANGES_REQUESTED",
+    isReadyForExport: g.status === "READY_FOR_EXPORT",
+    isExportedForPrint: g.status === "EXPORTED_FOR_PRINT",
   }));
 }
 
@@ -43,12 +48,15 @@ async function loadGroupsForSummary(
  * every proof-domain mutation, inside the same transaction as that
  * mutation's other writes. A no-op (no ActivityEvent, no update) when the
  * recalculated value matches what's already stored — never fabricates a
- * change that didn't happen.
+ * change that didn't happen. Returns the recalculated (or unchanged)
+ * summary so callers can react to it (e.g. syncing a lifecycle tag to
+ * Shopify off the aggregate, not the raw per-call inputs) without a second
+ * query.
  */
 export async function recalculateOrderProofSummary(
   tx: TxClient,
   params: { shopId: string; orderId: string; actorStaffId: string | null },
-): Promise<void> {
+): Promise<OrderProofSummary> {
   const order = await tx.shopifyOrder.findUniqueOrThrow({
     where: { id: params.orderId },
     select: { proofSummary: true },
@@ -56,7 +64,7 @@ export async function recalculateOrderProofSummary(
   const groups = await loadGroupsForSummary(tx, params.orderId);
   const newSummary = calculateOrderProofSummary(groups);
 
-  if (newSummary === order.proofSummary) return;
+  if (newSummary === order.proofSummary) return newSummary;
 
   await tx.shopifyOrder.update({
     where: { id: params.orderId },
@@ -75,4 +83,6 @@ export async function recalculateOrderProofSummary(
       actorType: params.actorStaffId ? ActorType.STAFF : ActorType.SYSTEM,
     },
   });
+
+  return newSummary;
 }

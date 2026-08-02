@@ -76,3 +76,12 @@ export type ActiveProofGroupStatus =
   "NOT_STARTED" | "DRAFT_IN_PROGRESS" | "READY_TO_SEND" | "NO_PROOF_REQUIRED" | "CANCELLED";
 
 export type ActiveProofVersionStatus = "DRAFT" | "READY_TO_SEND" | "SUPERSEDED" | "CANCELLED";
+
+// Milestone 09 — the exact wording a customer confirms before a proof group
+// can be approved. Versioned (not just the string alone) so that if this
+// wording is ever changed, a stored acknowledgedVersion on a past
+// CustomerProofResponse still says exactly what was agreed to at the time,
+// rather than being silently reinterpreted against new wording.
+export const PROOF_APPROVAL_ACKNOWLEDGEMENT_VERSION = "v1";
+export const PROOF_APPROVAL_ACKNOWLEDGEMENT_TEXT =
+  "I have reviewed this proof and approve it for production.";

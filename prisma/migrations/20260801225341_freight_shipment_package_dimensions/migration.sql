@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "FreightShipment" ADD COLUMN     "heightM" DOUBLE PRECISION,
+ADD COLUMN     "lengthM" DOUBLE PRECISION,
+ADD COLUMN     "weightKg" DOUBLE PRECISION,
+ADD COLUMN     "widthM" DOUBLE PRECISION;

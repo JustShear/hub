@@ -14,12 +14,13 @@ export interface BoardSearchInputProps {
   filters: BoardFilters;
   sort: BoardSort;
   view: BoardView;
+  visibleColumns: string[] | undefined;
 }
 
 // Board-level search across whatever the current filters already match —
 // not the full global search promised for a later milestone. Debounced so
 // typing doesn't trigger a navigation per keystroke.
-export function BoardSearchInput({ filters, sort, view }: BoardSearchInputProps) {
+export function BoardSearchInput({ filters, sort, view, visibleColumns }: BoardSearchInputProps) {
   const [, setSearchParams] = useSearchParams();
 
   // Adjust local state during render when the prop actually changes (e.g. a
@@ -44,9 +45,10 @@ export function BoardSearchInput({ filters, sort, view }: BoardSearchInputProps)
     setValue(next);
     clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
-      setSearchParams(boardFiltersToSearchParams({ ...filters, search: next }, sort, view), {
-        replace: true,
-      });
+      setSearchParams(
+        boardFiltersToSearchParams({ ...filters, search: next }, sort, view, visibleColumns),
+        { replace: true },
+      );
     }, DEBOUNCE_MS);
   }
 

@@ -1,29 +1,35 @@
-import { OrderStatus, OrderProofSummary, type Prisma } from "@prisma/client";
+import { OrderStatus, type Prisma } from "@prisma/client";
 
-// The Stage One Kanban columns per SRS Section 9.1. workflowStatus
-// (OrderStatus) is the core status model and has more values (16) than
-// there are columns (7) — this file is the one place that mapping happens,
-// rather than replacing OrderStatus or duplicating this logic per call site.
+// The Stage One Kanban columns. workflowStatus (OrderStatus) still drives
+// the three interactive columns (new/proof_being_prepared/pack); every
+// other column is now driven by a Shopify order tag — some tags are applied
+// externally (staff tag orders in Shopify directly), some are applied by
+// this app itself at the moment it does the corresponding action (see
+// sync-order-lifecycle-tag.server.ts and its three call sites). This file
+// is still the one place the tag/status → column mapping happens.
 export type BoardColumnKey =
-  | "changes_requested"
-  | "proof_sent"
   | "new"
-  | "proof_being_prepared"
+  | "order_sheet_printed"
   | "waiting_on_customer"
+  | "proof_being_prepared"
+  | "proof_sent"
+  | "changes_requested"
   | "proof_approved"
-  | "exported_for_print";
+  | "exported_for_print"
+  | "pack";
 
-export type SpecialViewKey = "on_hold" | "cancelled" | "archived";
+export type SpecialViewKey = "on_hold" | "cancelled" | "archived" | "fulfilled";
 
 export const SPECIAL_STATUSES: Record<SpecialViewKey, OrderStatus> = {
   on_hold: OrderStatus.ON_HOLD,
   cancelled: OrderStatus.CANCELLED,
   archived: OrderStatus.ARCHIVED,
+  fulfilled: OrderStatus.FULFILLED,
 };
 
 export interface BoardOrderLike {
   workflowStatus: OrderStatus;
-  proofSummary: OrderProofSummary;
+  tags: string[];
 }
 
 export interface BoardColumnDefinition {
@@ -37,74 +43,114 @@ export interface BoardColumnDefinition {
   dropSetsWorkflowStatus?: OrderStatus;
   /** Shown in the UI (tooltip / Move-to menu) when interactive is false. */
   readOnlyReason?: string;
-  /** Pure predicate — must stay logically equivalent to `where` below. */
+  /** Pure predicate — provably in sync with `where` below (both derived from the same rule, see deriveColumns). */
   matches: (order: BoardOrderLike) => boolean;
   /** Prisma where-fragment for querying this column directly (used by "load more" and column-scoped queries). */
   where: Prisma.ShopifyOrderWhereInput;
 }
 
+interface RawColumnRule {
+  key: BoardColumnKey;
+  label: string;
+  purpose: string;
+  interactive: boolean;
+  dropSetsWorkflowStatus?: OrderStatus;
+  readOnlyReason?: string;
+  /** Lower number = checked first / more-advanced-wins. Independent of BOARD_COLUMNS' own (display) order below. */
+  matchPriority: number;
+  ownMatches: (order: BoardOrderLike) => boolean;
+  ownWhere: Prisma.ShopifyOrderWhereInput;
+}
+
+const PACK_STATUSES = [OrderStatus.READY_TO_PACK, OrderStatus.PACKING] as const;
+
+// WAITING_CUSTOMER is folded into proof_being_prepared rather than left to
+// fall through to "new" — once the old interactive "Waiting on Customer"
+// drop target is removed, nothing will ever set that value again, but any
+// order already sitting there is more honestly "still being worked on
+// internally" than "brand new."
 const PROOF_BEING_PREPARED_STATUSES = [
   OrderStatus.ARTWORK_REQUIRED,
   OrderStatus.PROOFING_IN_PROGRESS,
+  OrderStatus.WAITING_CUSTOMER,
 ] as const;
 
-const PROOF_APPROVED_STATUSES = [
-  OrderStatus.PARTIALLY_APPROVED,
-  OrderStatus.READY_FOR_EXPORT,
-] as const;
-
-// Catch-all for everything from EXPORTED_FOR_PRINT through FULFILLED — there
-// is no dedicated production/warehouse/packing screen yet (Milestones 7+),
-// so an order that has moved past active proofing stays visible here rather
-// than disappearing from the board entirely. Revisit once those screens exist.
-const EXPORTED_STATUSES = [
-  OrderStatus.PARTIALLY_EXPORTED,
-  OrderStatus.EXPORTED_FOR_PRINT,
-  OrderStatus.IN_PRODUCTION,
-  OrderStatus.PARTIALLY_COMPLETE,
-  OrderStatus.READY_TO_PACK,
-  OrderStatus.PACKING,
-  OrderStatus.FULFILLED,
-] as const;
-
-// Priority order matters: this array is scanned top-to-bottom by
-// getBoardColumnKey, and the FIRST matching column wins. "Changes Requested"
-// and "Proof Sent" have no distinct OrderStatus value of their own — OrderStatus
-// doesn't distinguish "sent, awaiting response" or "customer asked for a
-// revision" from the surrounding proofing states — so they're promoted
-// ahead of everything else based on proofSummary (OrderProofSummary), which
-// does track that nuance. Once proof-group creation and customer responses
-// ship (later milestones), real data will populate these; until then they'll
-// simply stay empty, which is honest given no proof groups exist yet.
-export const BOARD_COLUMNS: BoardColumnDefinition[] = [
+// Raw rules, one per column, in match-priority order (most-advanced-state
+// wins). This is intentionally NOT the display order used to render the
+// board — see BOARD_COLUMNS below, which reorders these for display while
+// reusing the exact same derived matches/where.
+const RULES: RawColumnRule[] = [
+  {
+    key: "pack",
+    label: "Pack",
+    purpose: "Ready to pack — create a freight label directly from the card.",
+    interactive: true,
+    dropSetsWorkflowStatus: OrderStatus.READY_TO_PACK,
+    matchPriority: 1,
+    ownMatches: (order) => (PACK_STATUSES as readonly OrderStatus[]).includes(order.workflowStatus),
+    ownWhere: { workflowStatus: { in: [...PACK_STATUSES] } },
+  },
+  {
+    key: "exported_for_print",
+    label: "Exported for Print",
+    purpose: "Approved artwork has been exported for production.",
+    interactive: false,
+    readOnlyReason: "Set automatically once an export batch is created — not manually draggable.",
+    matchPriority: 2,
+    ownMatches: (order) => order.tags.includes("Exported for Print"),
+    ownWhere: { tags: { has: "Exported for Print" } },
+  },
+  {
+    key: "proof_approved",
+    label: "Proof Approved",
+    purpose: "Customer approved the proof.",
+    interactive: false,
+    readOnlyReason: "Set automatically when a customer response is recorded — not manually draggable.",
+    matchPriority: 3,
+    ownMatches: (order) => order.tags.includes("proof_accepted"),
+    ownWhere: { tags: { has: "proof_accepted" } },
+  },
   {
     key: "changes_requested",
     label: "Changes Requested",
     purpose: "Customer has requested a revision.",
     interactive: false,
-    readOnlyReason:
-      "Set automatically once customer proof responses exist (a later milestone) — not manually draggable.",
-    matches: (order) => order.proofSummary === OrderProofSummary.CHANGES_REQUESTED,
-    where: { proofSummary: OrderProofSummary.CHANGES_REQUESTED },
+    readOnlyReason: "Set automatically when a customer response is recorded — not manually draggable.",
+    matchPriority: 4,
+    ownMatches: (order) => order.tags.includes("proof_rejected"),
+    ownWhere: { tags: { has: "proof_rejected" } },
   },
   {
     key: "proof_sent",
     label: "Proof Sent",
     purpose: "Customer response is pending.",
     interactive: false,
-    readOnlyReason:
-      "Set automatically once proof sending exists (a later milestone) — not manually draggable.",
-    matches: (order) => order.proofSummary === OrderProofSummary.WAITING_ON_CUSTOMER,
-    where: { proofSummary: OrderProofSummary.WAITING_ON_CUSTOMER },
+    readOnlyReason: "Set automatically when Just Shear sends a proof request — not manually draggable.",
+    matchPriority: 5,
+    ownMatches: (order) => order.tags.includes("proof_sent"),
+    ownWhere: { tags: { has: "proof_sent" } },
   },
   {
-    key: "new",
-    label: "New",
-    purpose: "Imported orders awaiting review.",
-    interactive: true,
-    dropSetsWorkflowStatus: OrderStatus.NEW,
-    matches: (order) => order.workflowStatus === OrderStatus.NEW,
-    where: { workflowStatus: OrderStatus.NEW },
+    key: "waiting_on_customer",
+    label: "Waiting on Customer",
+    purpose: 'Staff are waiting on the customer (tagged "emailed" in Shopify).',
+    interactive: false,
+    readOnlyReason:
+      'Set from the "emailed" Shopify tag, applied by staff outside the Hub — not draggable here.',
+    matchPriority: 6,
+    ownMatches: (order) => order.tags.includes("emailed"),
+    ownWhere: { tags: { has: "emailed" } },
+  },
+  {
+    key: "order_sheet_printed",
+    label: "Order Sheet Printed",
+    purpose: 'Order sheet printed (tagged "p" in Shopify).',
+    interactive: false,
+    readOnlyReason:
+      'Set from the "p" Shopify tag, applied by staff in Shopify — not draggable here.',
+    matchPriority: 7,
+    ownMatches: (order) => order.tags.includes("p"),
+    ownWhere: { tags: { has: "p" } },
   },
   {
     key: "proof_being_prepared",
@@ -112,47 +158,80 @@ export const BOARD_COLUMNS: BoardColumnDefinition[] = [
     purpose: "Artwork work has started.",
     interactive: true,
     dropSetsWorkflowStatus: OrderStatus.PROOFING_IN_PROGRESS,
-    matches: (order) =>
+    matchPriority: 8,
+    ownMatches: (order) =>
       (PROOF_BEING_PREPARED_STATUSES as readonly OrderStatus[]).includes(order.workflowStatus),
-    where: { workflowStatus: { in: [...PROOF_BEING_PREPARED_STATUSES] } },
+    ownWhere: { workflowStatus: { in: [...PROOF_BEING_PREPARED_STATUSES] } },
   },
   {
-    key: "waiting_on_customer",
-    label: "Waiting on Customer",
-    purpose: "Staff are waiting for information or artwork.",
+    key: "new",
+    label: "New",
+    purpose: "Imported orders awaiting review.",
     interactive: true,
-    dropSetsWorkflowStatus: OrderStatus.WAITING_CUSTOMER,
-    matches: (order) => order.workflowStatus === OrderStatus.WAITING_CUSTOMER,
-    where: { workflowStatus: OrderStatus.WAITING_CUSTOMER },
+    dropSetsWorkflowStatus: OrderStatus.NEW,
+    // The structural catch-all — an order lands here either because it's
+    // genuinely brand-new, or because nothing more specific claimed it.
+    matchPriority: 9,
+    ownMatches: () => true,
+    ownWhere: {},
   },
-  {
-    key: "proof_approved",
-    label: "Proof Approved",
-    purpose: "At least one relevant group is approved and awaiting export.",
-    interactive: true,
-    dropSetsWorkflowStatus: OrderStatus.READY_FOR_EXPORT,
-    matches: (order) =>
-      (PROOF_APPROVED_STATUSES as readonly OrderStatus[]).includes(order.workflowStatus),
-    where: { workflowStatus: { in: [...PROOF_APPROVED_STATUSES] } },
-  },
-  {
-    key: "exported_for_print",
-    label: "Exported for Print",
-    purpose: "Approved artwork has been converted to production files.",
-    interactive: false,
-    readOnlyReason:
-      "Only reachable via the dedicated export action once proof approval/export records exist (a later milestone) — not manually draggable.",
-    matches: (order) =>
-      (EXPORTED_STATUSES as readonly OrderStatus[]).includes(order.workflowStatus),
-    where: { workflowStatus: { in: [...EXPORTED_STATUSES] } },
-  },
+];
+
+// Derives matches()/where by folding in "AND NOT any higher-priority rule's
+// own condition" automatically, so the two can never silently drift apart
+// the way two independently hand-maintained exclusion lists could — a real
+// risk once tags (which can coexist on one order, unlike a single-valued
+// workflowStatus) drive most columns.
+function deriveColumns(rules: RawColumnRule[]): BoardColumnDefinition[] {
+  const byPriority = [...rules].sort((a, b) => a.matchPriority - b.matchPriority);
+  return rules.map((rule) => {
+    const higherPriority = byPriority.filter((r) => r.matchPriority < rule.matchPriority);
+    return {
+      key: rule.key,
+      label: rule.label,
+      purpose: rule.purpose,
+      interactive: rule.interactive,
+      dropSetsWorkflowStatus: rule.dropSetsWorkflowStatus,
+      readOnlyReason: rule.readOnlyReason,
+      matches: (order: BoardOrderLike) =>
+        rule.ownMatches(order) && !higherPriority.some((h) => h.ownMatches(order)),
+      where: {
+        AND: [rule.ownWhere, ...higherPriority.map((h) => ({ NOT: h.ownWhere }))],
+      },
+    };
+  });
+}
+
+const DERIVED_BY_KEY = new Map(deriveColumns(RULES).map((column) => [column.key, column]));
+
+function columnFor(key: BoardColumnKey): BoardColumnDefinition {
+  const column = DERIVED_BY_KEY.get(key);
+  if (!column) {
+    throw new Error(`Unknown board column: ${key}`);
+  }
+  return column;
+}
+
+// Kept in DISPLAY order (left to right on the board) — distinct from the
+// match-priority order in RULES above. MoveToMenu, board-query.server.ts,
+// and every test iterate this array directly.
+export const BOARD_COLUMNS: BoardColumnDefinition[] = [
+  columnFor("new"),
+  columnFor("order_sheet_printed"),
+  columnFor("waiting_on_customer"),
+  columnFor("proof_being_prepared"),
+  columnFor("proof_sent"),
+  columnFor("changes_requested"),
+  columnFor("proof_approved"),
+  columnFor("exported_for_print"),
+  columnFor("pack"),
 ];
 
 export function isSpecialStatus(status: OrderStatus): boolean {
   return Object.values(SPECIAL_STATUSES).includes(status);
 }
 
-/** Returns null for orders on hold, cancelled, or archived — those never appear on the main board. */
+/** Returns null for orders on hold, cancelled, archived, or fulfilled — those never appear on the main board. */
 export function getBoardColumnKey(order: BoardOrderLike): BoardColumnKey | null {
   if (isSpecialStatus(order.workflowStatus)) {
     return null;

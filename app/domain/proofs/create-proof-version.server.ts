@@ -3,7 +3,7 @@ import { imageSize } from "image-size";
 import { ActorType } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import { isUniqueConstraintViolation } from "~/lib/prisma-errors";
-import { localDiskStorageAdapter } from "~/adapters/storage/local-disk-storage.server";
+import { storageAdapter } from "~/adapters/storage/get-storage-adapter.server";
 import {
   PROOF_FILE_KIND_EXTENSIONS,
   sanitizeDisplayFilename,
@@ -23,7 +23,20 @@ export interface CreateProofVersionInput {
   /** Client-generated once per upload attempt — a retry with the same key returns the already-created version. */
   idempotencyKey: string | null;
   staffUserId: string;
+  /**
+   * Required only when the group's current version is APPROVED (Milestone
+   * 09) — reopening a locked, customer-approved version is a deliberate
+   * override, recorded as a ManualOverride, never a silent supersession.
+   */
+  overrideReason?: string | null;
 }
+
+// Thrown inside the version-creation transaction, then caught and converted
+// to a normal rejected result — lets the "is the current version locked"
+// check happen at the one point (inside the retry transaction) where the
+// current version is read with real concurrency safety, without every other
+// caller of createVersionWithRetry needing to know about this one case.
+class ApprovedVersionReopenRequiresReasonError extends Error {}
 
 export type CreateProofVersionResult =
   | { outcome: "created"; proofVersionId: string; versionNumber: number }
@@ -63,6 +76,21 @@ export async function createProofVersion(
     }
   }
 
+  // Early, pre-storage-write check — the authoritative re-check happens
+  // inside the transaction below, but there's no reason to validate the
+  // file or write to storage for a request that's going to be rejected.
+  const currentVersion = await db.proofVersion.findFirst({
+    where: { proofGroupId: input.proofGroupId },
+    orderBy: { versionNumber: "desc" },
+  });
+  if (currentVersion?.status === "APPROVED" && !input.overrideReason?.trim()) {
+    return {
+      outcome: "rejected",
+      reason:
+        "This proof group's current version is approved and locked — reopening it requires a reason.",
+    };
+  }
+
   if (input.sourceAssetIds.length > 0) {
     const validAssetCount = await db.customerArtworkAsset.count({
       where: { id: { in: input.sourceAssetIds }, shopId: input.shopId },
@@ -96,7 +124,7 @@ export async function createProofVersion(
   // Random, server-generated key — never derived from the original filename
   // or any user input, so path traversal isn't reachable.
   const storageKey = `proof-versions/${input.proofGroupId}/${randomUUID()}.${PROOF_FILE_KIND_EXTENSIONS[validation.kind]}`;
-  await localDiskStorageAdapter.putObject({ key: storageKey, body: input.fileBuffer });
+  await storageAdapter.putObject({ key: storageKey, body: input.fileBuffer });
 
   try {
     const created = await createVersionWithRetry({
@@ -115,14 +143,22 @@ export async function createProofVersion(
       width,
       height,
       sourceAssetIds: input.sourceAssetIds,
+      overrideReason: input.overrideReason ?? null,
     });
     return { outcome: "created", proofVersionId: created.id, versionNumber: created.versionNumber };
   } catch (error) {
     // The DB side failed after the file was already written to storage —
     // clean up the orphaned object rather than leaving it unreferenced.
-    await localDiskStorageAdapter.deleteObject(storageKey).catch(() => {
+    await storageAdapter.deleteObject(storageKey).catch(() => {
       // Best-effort cleanup only; the original DB error is what matters.
     });
+    if (error instanceof ApprovedVersionReopenRequiresReasonError) {
+      return {
+        outcome: "rejected",
+        reason:
+          "This proof group's current version is approved and locked — reopening it requires a reason.",
+      };
+    }
     throw error;
   }
 }
@@ -143,6 +179,7 @@ interface CreateVersionWithRetryParams {
   width: number | null;
   height: number | null;
   sourceAssetIds: string[];
+  overrideReason: string | null;
 }
 
 // The @@unique([proofGroupId, versionNumber]) constraint is the real
@@ -195,10 +232,43 @@ async function createVersionWithRetry(
           });
         }
 
-        // Never silently supersede an APPROVED version — moot this
-        // milestone (APPROVED is structurally unreachable), but documents
-        // the rule for when it becomes reachable.
-        if (latest && (latest.status === "DRAFT" || latest.status === "READY_TO_SEND")) {
+        // Never silently supersede an APPROVED version — reopening one
+        // requires a reason, re-checked here (not just in the pre-check
+        // above) so a concurrent approval landing between the pre-check and
+        // this transaction can't slip through unreasoned.
+        if (latest?.status === "APPROVED") {
+          if (!params.overrideReason?.trim()) {
+            throw new ApprovedVersionReopenRequiresReasonError();
+          }
+          await tx.manualOverride.create({
+            data: {
+              shopId: params.shopId,
+              overrideType: "REOPEN_APPROVED_PROOF",
+              relatedEntityType: "ProofVersion",
+              relatedEntityId: latest.id,
+              previousValue: { status: latest.status },
+              newValue: { status: "SUPERSEDED" },
+              reason: params.overrideReason.trim(),
+              staffUserId: params.staffUserId,
+            },
+          });
+        }
+
+        // Every other non-terminal status the customer or staff could have
+        // left the previous version in gets superseded the same way — a new
+        // version always means the old one is no longer the operative one,
+        // including one currently SENT/VIEWED (an outstanding customer link
+        // for it simply becomes non-actionable, never silently deleted) or
+        // CHANGES_REQUESTED (the expected, ordinary next step).
+        const supersedableStatuses = [
+          "DRAFT",
+          "READY_TO_SEND",
+          "SENT",
+          "VIEWED",
+          "CHANGES_REQUESTED",
+          "APPROVED",
+        ];
+        if (latest && supersedableStatuses.includes(latest.status)) {
           await tx.proofVersion.update({
             where: { id: latest.id },
             data: {
@@ -215,7 +285,7 @@ async function createVersionWithRetry(
               entityId: latest.id,
               eventType: "proof_version_superseded",
               summary: `Proof version ${latest.versionNumber} superseded by version ${nextVersionNumber}`,
-              metadata: { supersededByVersionId: created.id },
+              metadata: { supersededByVersionId: created.id, previousStatus: latest.status },
               actorStaffId: params.staffUserId,
               actorType: ActorType.STAFF,
             },

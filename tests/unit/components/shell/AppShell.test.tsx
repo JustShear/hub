@@ -20,12 +20,18 @@ function renderShell(staffUser: StaffUserWithPermissions, integrationIssueCount 
     {
       path: "/dashboard",
       Component: () => (
-        <AppShell staffUser={staffUser} integrationIssueCount={integrationIssueCount}>
+        <AppShell
+          staffUser={staffUser}
+          integrationIssueCount={integrationIssueCount}
+          notifications={[]}
+          unreadNotificationCount={0}
+        >
           <p>Page content</p>
         </AppShell>
       ),
     },
     { path: "/logout", action: () => null },
+    { path: "/notifications/actions", action: () => null },
   ]);
   return render(<Stub initialEntries={["/dashboard"]} />);
 }

@@ -257,4 +257,84 @@ describe("loadBoardColumns (integration)", () => {
     const ids = result.columns.flatMap((c) => c.cards).map((c) => c.id);
     expect(ids).toContain(order.id);
   });
+
+  it('places an order tagged "Exported for Print" in the Exported for Print column, not New', async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: ["Exported for Print"],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(order.id);
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const column = result.columns.find((c) => c.key === "exported_for_print");
+    expect(column?.cards.some((c) => c.id === order.id)).toBe(true);
+    const newColumn = result.columns.find((c) => c.key === "new");
+    expect(newColumn?.cards.some((c) => c.id === order.id)).toBe(false);
+  });
+
+  it("reports the active freight shipment's full shape and isCancelled on a Pack-column card", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const staffUser = await createStaffUser("Freight Test Staff");
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.READY_TO_PACK,
+      },
+    });
+    createdOrderIds.push(order.id);
+    const shipment = await db.freightShipment.create({
+      data: {
+        shopId: shop.id,
+        orderId: order.id,
+        status: "CREATED",
+        idempotencyKey: randomUUID(),
+        carrierCode: "AusPost",
+        carrierServiceCode: "3D85",
+        weightKg: 1.5,
+        trackingNumber: "TRACK123",
+        createdByStaffId: staffUser.id,
+      },
+    });
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const column = result.columns.find((c) => c.key === "pack");
+    const card = column?.cards.find((c) => c.id === order.id);
+    expect(card).toBeDefined();
+    expect(card?.isCancelled).toBe(false);
+    expect(card?.freightShipment).toMatchObject({
+      id: shipment.id,
+      status: "CREATED",
+      trackingNumber: "TRACK123",
+      weightKg: 1.5,
+      carrierCode: "AusPost",
+      carrierServiceCode: "3D85",
+    });
+
+    await db.freightShipment.delete({ where: { id: shipment.id } });
+  });
 });

@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 import { AlertTriangle, ChevronDown, ChevronRight, File as FileIcon } from "lucide-react";
-import type { NoProofReason, ProofRequirementValue } from "@prisma/client";
 import { Badge, type BadgeTone } from "~/components/shared/Badge";
 import { PriorityBadge } from "~/components/board/CardBadges";
 import {
   DECORATION_METHOD_LABELS,
   NO_PROOF_REASON_LABELS,
   PROOF_GROUP_STATUS_LABELS,
-  PROOF_REQUIREMENT_VALUE_LABELS,
 } from "~/domain/proofs/labels";
 import { formatAuDate, formatAuDateTime } from "~/lib/dates";
 import { ProofVersionList } from "~/components/order-drawer/proofs/ProofVersionList";
@@ -21,15 +19,6 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   NO_PROOF_REQUIRED: "neutral",
   CANCELLED: "error",
 };
-
-const NO_PROOF_REASONS: NoProofReason[] = [
-  "UNPRINTED_PRODUCT",
-  "REPEAT_JOB_PREVIOUS_ARTWORK",
-  "APPROVED_STANDARD_LOGO",
-  "CUSTOMER_SUPPLIED_PRODUCTION_READY",
-  "INTERNAL_STAFF_ORDER",
-  "OTHER",
-];
 
 type GenericActionResponse =
   { intent: string; ok: true } | { intent: string; ok: false; error: string };
@@ -48,11 +37,11 @@ export interface ProofGroupCardProps {
   assignableStaff: { id: string; name: string }[];
   canUpdate: boolean;
   canCancel: boolean;
-  canUpdateRequirement: boolean;
   canCreateVersions: boolean;
   canUpdateVersionStatus: boolean;
   canAssignArtwork: boolean;
   canCreateNotes: boolean;
+  canOverride: boolean;
 }
 
 export function ProofGroupCard({
@@ -63,11 +52,11 @@ export function ProofGroupCard({
   assignableStaff,
   canUpdate,
   canCancel,
-  canUpdateRequirement,
   canCreateVersions,
   canUpdateVersionStatus,
   canAssignArtwork,
   canCreateNotes,
+  canOverride,
 }: ProofGroupCardProps) {
   const [expanded, setExpanded] = useState(false);
   const actionUrl = `/orders/${orderId}/proof-groups`;
@@ -139,12 +128,6 @@ export function ProofGroupCard({
             </div>
           ) : null}
 
-          <RequirementEditor
-            actionUrl={actionUrl}
-            group={group}
-            canUpdateRequirement={canUpdateRequirement}
-          />
-
           <section>
             <h5 className="text-xs font-medium text-muted">Linked order lines</h5>
             <div className="mt-1 flex flex-col gap-1">
@@ -208,6 +191,7 @@ export function ProofGroupCard({
             sourceAssetOptions={availableAssets}
             canCreateVersions={canCreateVersions && isActive}
             canUpdateStatus={canUpdateVersionStatus}
+            canOverride={canOverride}
             currentVersionReadiness={group.readiness}
           />
 
@@ -222,142 +206,6 @@ export function ProofGroupCard({
             <CancelGroupSection actionUrl={actionUrl} proofGroupId={group.id} />
           ) : null}
         </div>
-      ) : null}
-    </div>
-  );
-}
-
-function RequirementEditor({
-  actionUrl,
-  group,
-  canUpdateRequirement,
-}: {
-  actionUrl: string;
-  group: OrderDetailProofGroup;
-  canUpdateRequirement: boolean;
-}) {
-  const fetcher = useFetcher<GenericActionResponse>();
-  const [target, setTarget] = useState<ProofRequirementValue>(group.requirement);
-  const [noProofReason, setNoProofReason] = useState<NoProofReason | "">(group.noProofReason ?? "");
-  const [noProofReasonNote, setNoProofReasonNote] = useState("");
-  const [reason, setReason] = useState("");
-  const response = fetcher.data;
-
-  if (!canUpdateRequirement) {
-    return (
-      <div>
-        <h5 className="text-xs font-medium text-muted">Proof requirement</h5>
-        <p className="mt-1 text-sm text-ink">{PROOF_REQUIREMENT_VALUE_LABELS[group.requirement]}</p>
-      </div>
-    );
-  }
-
-  const isDirty = target !== group.requirement;
-  const needsNoProofReason = target === "NOT_REQUIRED";
-  const canSave =
-    isDirty &&
-    reason.trim().length > 0 &&
-    (!needsNoProofReason ||
-      (noProofReason && (noProofReason !== "OTHER" || noProofReasonNote.trim().length > 0)));
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-muted">Proof requirement</h5>
-      <div className="mt-1 flex flex-wrap items-center gap-2">
-        <select
-          value={target}
-          onChange={(e) => {
-            setTarget(e.target.value as ProofRequirementValue);
-          }}
-          className="rounded border border-border bg-page px-2 py-1.5 text-sm text-ink"
-        >
-          <option value="UNDETERMINED">{PROOF_REQUIREMENT_VALUE_LABELS.UNDETERMINED}</option>
-          <option value="REQUIRED">{PROOF_REQUIREMENT_VALUE_LABELS.REQUIRED}</option>
-          <option value="NOT_REQUIRED">{PROOF_REQUIREMENT_VALUE_LABELS.NOT_REQUIRED}</option>
-        </select>
-      </div>
-      {isDirty ? (
-        <div className="mt-2 flex flex-col gap-2 rounded border border-border bg-page p-2">
-          {needsNoProofReason ? (
-            <>
-              <select
-                value={noProofReason}
-                onChange={(e) => {
-                  setNoProofReason(e.target.value as NoProofReason);
-                }}
-                className="rounded border border-border px-2 py-1 text-sm"
-              >
-                <option value="" disabled>
-                  Choose a reason…
-                </option>
-                {NO_PROOF_REASONS.map((r) => (
-                  <option key={r} value={r}>
-                    {NO_PROOF_REASON_LABELS[r]}
-                  </option>
-                ))}
-              </select>
-              {noProofReason === "OTHER" ? (
-                <input
-                  type="text"
-                  placeholder="Explain why"
-                  value={noProofReasonNote}
-                  onChange={(e) => {
-                    setNoProofReasonNote(e.target.value);
-                  }}
-                  className="rounded border border-border px-2 py-1 text-sm"
-                />
-              ) : null}
-            </>
-          ) : null}
-          <input
-            type="text"
-            placeholder={
-              group.requirement === "NOT_REQUIRED"
-                ? "Reason for reopening (required)"
-                : "Reason (required)"
-            }
-            value={reason}
-            onChange={(e) => {
-              setReason(e.target.value);
-            }}
-            className="rounded border border-border px-2 py-1 text-sm"
-          />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={!canSave || fetcher.state !== "idle"}
-              onClick={() => {
-                const formData = new FormData();
-                formData.set("_intent", "setProofRequirement");
-                formData.set("proofGroupId", group.id);
-                formData.set("targetRequirement", target);
-                formData.set("expectedRequirement", group.requirement);
-                formData.set("noProofReason", noProofReason);
-                formData.set("noProofReasonNote", noProofReasonNote);
-                formData.set("reason", reason);
-                void fetcher.submit(formData, { method: "post", action: actionUrl });
-              }}
-              className="rounded-md bg-brand-navy px-2.5 py-1 text-xs text-white disabled:opacity-50"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setTarget(group.requirement);
-                setReason("");
-              }}
-              className="rounded-md px-2.5 py-1 text-xs text-muted"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {response && !response.ok ? (
-        <p role="alert" className="mt-1 text-xs text-error">
-          {response.error}
-        </p>
       ) : null}
     </div>
   );

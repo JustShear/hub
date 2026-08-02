@@ -215,4 +215,151 @@ describe("order proof-groups action route (integration)", () => {
     expect(result).toMatchObject({ ok: false });
     void staffUser;
   });
+
+  it("rejects sendProofRequest for a staff user without proof_requests.create (view-only Print Staff)", async () => {
+    const order = await tracker.createOrder();
+    const staffUser = await tracker.createStaffUser();
+    const { proofGroupId } = await tracker.createReadyGroup({
+      orderId: order.id,
+      shopId: order.shopId,
+      staffUserId: staffUser.id,
+    });
+    const printStaff = await createStaffUserWithRole("PRINT_STAFF");
+    const cookie = await sessionCookieFor(printStaff.id);
+    const formData = new FormData();
+    formData.set("_intent", "sendProofRequest");
+    formData.set("proofGroupId", proofGroupId);
+
+    const result = await action({
+      request: new Request(`http://localhost/orders/${order.id}/proof-groups`, {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: formData,
+      }),
+      params: { orderId: order.id },
+      context: {},
+    } as never);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(await db.proofRequest.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  it("performs a valid sendProofRequest action for Manager", async () => {
+    const order = await tracker.createOrder();
+    const manager = await createStaffUserWithRole("MANAGER");
+    const { proofGroupId } = await tracker.createReadyGroup({
+      orderId: order.id,
+      shopId: order.shopId,
+      staffUserId: manager.id,
+    });
+    const cookie = await sessionCookieFor(manager.id);
+    const formData = new FormData();
+    formData.set("_intent", "sendProofRequest");
+    formData.set("proofGroupId", proofGroupId);
+    formData.set("staffMessage", "Please review when you get a chance.");
+
+    const result = await action({
+      request: new Request(`http://localhost/orders/${order.id}/proof-groups`, {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: formData,
+      }),
+      params: { orderId: order.id },
+      context: {},
+    } as never);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(await db.proofRequest.count({ where: { orderId: order.id } })).toBe(1);
+    const group = await db.proofGroup.findUniqueOrThrow({ where: { id: proofGroupId } });
+    expect(group.status).toBe("SENT");
+  });
+
+  it("rejects manuallyApproveProofVersion for a staff user without proof_responses.override (view-only Print Staff)", async () => {
+    const order = await tracker.createOrder();
+    const manager = await createStaffUserWithRole("MANAGER");
+    const { proofGroupId, proofVersionId } = await tracker.createReadyGroup({
+      orderId: order.id,
+      shopId: order.shopId,
+      staffUserId: manager.id,
+    });
+    await action({
+      request: new Request(`http://localhost/orders/${order.id}/proof-groups`, {
+        method: "POST",
+        headers: { Cookie: await sessionCookieFor(manager.id) },
+        body: (() => {
+          const formData = new FormData();
+          formData.set("_intent", "sendProofRequest");
+          formData.set("proofGroupId", proofGroupId);
+          return formData;
+        })(),
+      }),
+      params: { orderId: order.id },
+      context: {},
+    } as never);
+
+    const printStaff = await createStaffUserWithRole("PRINT_STAFF");
+    const cookie = await sessionCookieFor(printStaff.id);
+    const formData = new FormData();
+    formData.set("_intent", "manuallyApproveProofVersion");
+    formData.set("proofVersionId", proofVersionId);
+    formData.set("reason", "Customer called to approve");
+
+    const result = await action({
+      request: new Request(`http://localhost/orders/${order.id}/proof-groups`, {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: formData,
+      }),
+      params: { orderId: order.id },
+      context: {},
+    } as never);
+
+    expect(result).toMatchObject({ ok: false });
+    const version = await db.proofVersion.findUniqueOrThrow({ where: { id: proofVersionId } });
+    expect(version.status).toBe("SENT");
+  });
+
+  it("performs a valid manuallyApproveProofVersion action for Manager", async () => {
+    const order = await tracker.createOrder();
+    const manager = await createStaffUserWithRole("MANAGER");
+    const cookie = await sessionCookieFor(manager.id);
+    const { proofGroupId, proofVersionId } = await tracker.createReadyGroup({
+      orderId: order.id,
+      shopId: order.shopId,
+      staffUserId: manager.id,
+    });
+    await action({
+      request: new Request(`http://localhost/orders/${order.id}/proof-groups`, {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: (() => {
+          const formData = new FormData();
+          formData.set("_intent", "sendProofRequest");
+          formData.set("proofGroupId", proofGroupId);
+          return formData;
+        })(),
+      }),
+      params: { orderId: order.id },
+      context: {},
+    } as never);
+
+    const formData = new FormData();
+    formData.set("_intent", "manuallyApproveProofVersion");
+    formData.set("proofVersionId", proofVersionId);
+    formData.set("reason", "Customer called to approve");
+
+    const result = await action({
+      request: new Request(`http://localhost/orders/${order.id}/proof-groups`, {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: formData,
+      }),
+      params: { orderId: order.id },
+      context: {},
+    } as never);
+
+    expect(result).toMatchObject({ ok: true });
+    const version = await db.proofVersion.findUniqueOrThrow({ where: { id: proofVersionId } });
+    expect(version.status).toBe("APPROVED");
+  });
 });

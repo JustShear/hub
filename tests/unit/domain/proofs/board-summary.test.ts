@@ -41,6 +41,48 @@ describe("summarizeProofGroupsForBoard", () => {
       requiringWorkCount: 0,
       noProofRequiredCount: 0,
       blockedCount: 0,
+      waitingOnCustomerCount: 0,
+      changesRequestedCount: 0,
+      approvedCount: 0,
     });
+  });
+
+  it("counts SENT and VIEWED groups as waiting on customer", () => {
+    const result = summarizeProofGroupsForBoard([
+      group({ status: "SENT" }),
+      group({ status: "VIEWED" }),
+    ]);
+    expect(result.waitingOnCustomerCount).toBe(2);
+  });
+
+  it("counts CHANGES_REQUESTED and APPROVED groups independently of each other and of waiting", () => {
+    const result = summarizeProofGroupsForBoard([
+      group({ status: "SENT" }),
+      group({ status: "CHANGES_REQUESTED" }),
+      group({ status: "APPROVED" }),
+    ]);
+    expect(result).toMatchObject({
+      waitingOnCustomerCount: 1,
+      changesRequestedCount: 1,
+      approvedCount: 1,
+    });
+  });
+
+  it("does not double-count a blocked group as also requiring pre-send work", () => {
+    const result = summarizeProofGroupsForBoard([
+      group({ status: "DRAFT_IN_PROGRESS", hasOpenIntegrationFailure: true }),
+    ]);
+    expect(result.blockedCount).toBe(1);
+    expect(result.requiringWorkCount).toBe(0);
+  });
+
+  it("never counts SENT/VIEWED/CHANGES_REQUESTED/APPROVED groups as requiring pre-send work", () => {
+    const result = summarizeProofGroupsForBoard([
+      group({ status: "SENT" }),
+      group({ status: "VIEWED" }),
+      group({ status: "CHANGES_REQUESTED" }),
+      group({ status: "APPROVED" }),
+    ]);
+    expect(result.requiringWorkCount).toBe(0);
   });
 });

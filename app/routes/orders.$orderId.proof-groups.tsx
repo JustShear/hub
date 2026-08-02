@@ -22,9 +22,16 @@ import {
 } from "~/domain/proofs/link-proof-group-asset.server";
 import { assignProofGroup } from "~/domain/proofs/assign-proof-group.server";
 import { createProofVersion } from "~/domain/proofs/create-proof-version.server";
+import { manuallyApproveProofVersion } from "~/domain/proofs/manually-approve-proof-version.server";
 import { markProofVersionReady } from "~/domain/proofs/mark-proof-version-ready.server";
 import { cancelProofVersion } from "~/domain/proofs/cancel-proof-version.server";
 import { addProofNote } from "~/domain/proofs/add-proof-note.server";
+import { sendProofRequest } from "~/domain/proofs/send-proof-request.server";
+import { resendProofRequest } from "~/domain/proofs/resend-proof-request.server";
+import { revokeProofRequest } from "~/domain/proofs/revoke-proof-request.server";
+import { suppressProofReminder } from "~/domain/proofs/suppress-proof-reminder.server";
+import { retryFailedKlaviyoDispatch } from "~/domain/proofs/dispatch-klaviyo-event.server";
+import { db } from "~/lib/db.server";
 
 // Action-only resource route (no loader, no component) — every proof-group
 // and proof-version mutation for this order goes through here, mirroring
@@ -204,6 +211,14 @@ export async function action({ request, params }: Route.ActionArgs) {
     ) {
       return { intent, ok: false, error: "You don't have permission to create proof versions." };
     }
+    const overrideReason = formStringOrNull(formData, "overrideReason");
+    if (overrideReason && !hasPermission(staffUser, "proof_responses.override")) {
+      return {
+        intent,
+        ok: false,
+        error: "You don't have permission to reopen an approved proof.",
+      };
+    }
     const file = formData.get("file");
     if (!(file instanceof File)) {
       return { intent, ok: false, error: "A proof file is required." };
@@ -218,6 +233,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       sourceAssetIds: formData.getAll("sourceAssetId").map(String),
       idempotencyKey: formStringOrNull(formData, "idempotencyKey"),
       staffUserId: staffUser.id,
+      overrideReason,
     });
     if (result.outcome === "rejected") {
       return { intent, ok: false, error: result.reason };
@@ -245,6 +261,26 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
     if (result.outcome === "rejected") {
       return { intent, ok: false, error: result.reason, issues: result.issues };
+    }
+    return { intent, ok: true };
+  }
+
+  if (intent === "manuallyApproveProofVersion") {
+    if (!hasPermission(staffUser, "proof_responses.override")) {
+      return {
+        intent,
+        ok: false,
+        error: "You don't have permission to manually approve a proof.",
+      };
+    }
+    const result = await manuallyApproveProofVersion({
+      shopId: staffUser.shopId,
+      proofVersionId: formString(formData, "proofVersionId"),
+      reason: formString(formData, "reason"),
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent, ok: false, error: result.reason };
     }
     return { intent, ok: true };
   }
@@ -287,6 +323,85 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (result.outcome === "rejected") {
       return { intent, ok: false, error: result.reason };
     }
+    return { intent, ok: true };
+  }
+
+  if (intent === "sendProofRequest") {
+    if (!hasPermission(staffUser, "proof_requests.create")) {
+      return { intent, ok: false, error: "You don't have permission to send proof requests." };
+    }
+    const result = await sendProofRequest({
+      shopId: staffUser.shopId,
+      orderId,
+      proofGroupIds: formData.getAll("proofGroupId").map(String),
+      staffMessage: formStringOrNull(formData, "staffMessage"),
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent, ok: false, error: result.reason, issues: result.issues };
+    }
+    return { intent, ok: true, proofRequestId: result.proofRequestId };
+  }
+
+  if (intent === "resendProofRequest") {
+    if (!hasPermission(staffUser, "proof_requests.resend")) {
+      return { intent, ok: false, error: "You don't have permission to resend proof requests." };
+    }
+    const result = await resendProofRequest({
+      shopId: staffUser.shopId,
+      proofRequestId: formString(formData, "proofRequestId"),
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent, ok: false, error: result.reason };
+    }
+    return { intent, ok: true };
+  }
+
+  if (intent === "revokeProofRequest") {
+    if (!hasPermission(staffUser, "proof_requests.revoke")) {
+      return { intent, ok: false, error: "You don't have permission to revoke proof requests." };
+    }
+    const result = await revokeProofRequest({
+      shopId: staffUser.shopId,
+      proofRequestId: formString(formData, "proofRequestId"),
+      reason: formString(formData, "reason"),
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent, ok: false, error: result.reason };
+    }
+    return { intent, ok: true };
+  }
+
+  if (intent === "suppressProofReminder") {
+    if (!hasPermission(staffUser, "proof_reminders.manage")) {
+      return { intent, ok: false, error: "You don't have permission to manage proof reminders." };
+    }
+    const result = await suppressProofReminder({
+      shopId: staffUser.shopId,
+      proofRequestId: formString(formData, "proofRequestId"),
+      reason: formString(formData, "reason"),
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent, ok: false, error: result.reason };
+    }
+    return { intent, ok: true };
+  }
+
+  if (intent === "retryProofDelivery") {
+    if (!hasPermission(staffUser, "proof_requests.resend")) {
+      return { intent, ok: false, error: "You don't have permission to retry proof delivery." };
+    }
+    const dispatchId = formString(formData, "klaviyoDispatchId");
+    const dispatch = await db.klaviyoDispatch.findFirst({
+      where: { id: dispatchId, shopId: staffUser.shopId },
+    });
+    if (!dispatch) {
+      return { intent, ok: false, error: "Delivery record not found." };
+    }
+    await retryFailedKlaviyoDispatch(dispatchId);
     return { intent, ok: true };
   }
 

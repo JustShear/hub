@@ -28,14 +28,18 @@ interface VersionRowProps {
   orderId: string;
   version: OrderDetailProofVersion;
   canUpdateStatus: boolean;
+  canOverride: boolean;
   isReadyForVersion: boolean;
   readinessIssues: string[];
 }
 
 type VersionActionResponse =
-  | { intent: "markProofVersionReady" | "cancelProofVersion"; ok: true }
   | {
-      intent: "markProofVersionReady" | "cancelProofVersion";
+      intent: "markProofVersionReady" | "cancelProofVersion" | "manuallyApproveProofVersion";
+      ok: true;
+    }
+  | {
+      intent: "markProofVersionReady" | "cancelProofVersion" | "manuallyApproveProofVersion";
       ok: false;
       error: string;
       issues?: string[];
@@ -45,6 +49,7 @@ function VersionRow({
   orderId,
   version,
   canUpdateStatus,
+  canOverride,
   isReadyForVersion,
   readinessIssues,
 }: VersionRowProps) {
@@ -59,26 +64,34 @@ function VersionRow({
       <div className="flex items-start gap-3">
         {primaryAsset ? (
           isImageMime(primaryAsset.mimeType) ? (
-            <img
-              src={`/proof-assets/${primaryAsset.id}`}
-              alt={`Version ${version.versionNumber} preview`}
-              loading="lazy"
-              className="h-16 w-16 shrink-0 rounded border border-border object-cover"
-            />
+            <a
+              href={`/proof-assets/${primaryAsset.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0"
+              aria-label={`Open version ${version.versionNumber} proof at full size`}
+            >
+              <img
+                src={`/proof-assets/${primaryAsset.id}`}
+                alt={`Version ${version.versionNumber} preview`}
+                loading="lazy"
+                className="h-36 w-36 rounded border border-border object-cover transition hover:opacity-90 sm:h-44 sm:w-44"
+              />
+            </a>
           ) : (
             <a
               href={`/proof-assets/${primaryAsset.id}`}
               target="_blank"
               rel="noreferrer"
-              className="flex h-16 w-16 shrink-0 items-center justify-center rounded border border-border bg-page text-muted"
+              className="flex h-36 w-36 shrink-0 items-center justify-center rounded border border-border bg-page text-muted hover:bg-border/30 sm:h-44 sm:w-44"
               aria-label={`Open ${primaryAsset.originalFilename ?? "proof file"}`}
             >
-              <FileIcon aria-hidden="true" className="h-6 w-6" />
+              <FileIcon aria-hidden="true" className="h-10 w-10" />
             </a>
           )
         ) : (
-          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded border border-border bg-page text-muted">
-            <FileIcon aria-hidden="true" className="h-6 w-6" />
+          <span className="flex h-36 w-36 shrink-0 items-center justify-center rounded border border-border bg-page text-muted sm:h-44 sm:w-44">
+            <FileIcon aria-hidden="true" className="h-10 w-10" />
           </span>
         )}
         <div className="min-w-0 flex-1">
@@ -159,8 +172,89 @@ function VersionRow({
         </div>
       ) : null}
 
+      {canOverride && (version.status === "SENT" || version.status === "VIEWED") ? (
+        <div className="mt-2 border-t border-border pt-2">
+          <ManuallyApproveForm actionUrl={actionUrl} proofVersionId={version.id} />
+        </div>
+      ) : null}
+
       {response && !response.ok ? (
         <p role="alert" className="mt-2 text-xs text-error">
+          {response.error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ManuallyApproveForm({
+  actionUrl,
+  proofVersionId,
+}: {
+  actionUrl: string;
+  proofVersionId: string;
+}) {
+  const fetcher = useFetcher<VersionActionResponse>();
+  const [showForm, setShowForm] = useState(false);
+  const [reason, setReason] = useState("");
+  const response = fetcher.data;
+
+  if (!showForm) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setShowForm(true);
+        }}
+        className="rounded-md border border-border px-2.5 py-1 text-xs text-ink hover:bg-page"
+      >
+        Manually approve proof
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1 rounded border border-border bg-page p-2">
+      <p className="text-xs text-muted">
+        Records this proof as approved without the customer completing their link — e.g. they
+        approved by phone or in person.
+      </p>
+      <input
+        type="text"
+        placeholder="Reason (required)"
+        value={reason}
+        onChange={(e) => {
+          setReason(e.target.value);
+        }}
+        className="rounded border border-border px-2 py-1 text-xs"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={reason.trim().length === 0 || fetcher.state !== "idle"}
+          onClick={() => {
+            const formData = new FormData();
+            formData.set("_intent", "manuallyApproveProofVersion");
+            formData.set("proofVersionId", proofVersionId);
+            formData.set("reason", reason);
+            void fetcher.submit(formData, { method: "post", action: actionUrl });
+          }}
+          className="rounded-md bg-brand-navy px-2.5 py-1 text-xs text-white disabled:opacity-50"
+        >
+          Confirm approval
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowForm(false);
+          }}
+          className="rounded-md px-2.5 py-1 text-xs text-muted"
+        >
+          Back
+        </button>
+      </div>
+      {response && !response.ok ? (
+        <p role="alert" className="text-xs text-error">
           {response.error}
         </p>
       ) : null}
@@ -233,10 +327,12 @@ function CreateProofVersionForm({
   orderId,
   proofGroupId,
   sourceAssetOptions,
+  requiresOverrideReason,
 }: {
   orderId: string;
   proofGroupId: string;
   sourceAssetOptions: { id: string; label: string }[];
+  requiresOverrideReason: boolean;
 }) {
   const fetcher = useFetcher<CreateVersionResponse>();
   const formRef = useRef<HTMLFormElement>(null);
@@ -264,6 +360,18 @@ function CreateProofVersionForm({
       <input type="hidden" name="_intent" value="createProofVersion" />
       <input type="hidden" name="proofGroupId" value={proofGroupId} />
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+      {requiresOverrideReason ? (
+        <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+          Reason for reopening this approved proof (required)
+          <textarea
+            name="overrideReason"
+            required
+            rows={2}
+            className="rounded border border-border px-2 py-1.5 text-sm text-ink"
+            placeholder="e.g. Customer called to request a colour change after approving."
+          />
+        </label>
+      ) : null}
       <label className="flex flex-col gap-1 text-xs font-medium text-muted">
         New proof file (PDF, PNG, or JPEG, up to 25MB)
         <input
@@ -271,7 +379,7 @@ function CreateProofVersionForm({
           name="file"
           accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
           required
-          className="text-sm"
+          className="text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[#647580] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-[#556370]"
         />
       </label>
       <label className="flex flex-col gap-1 text-xs font-medium text-muted">
@@ -320,6 +428,7 @@ export interface ProofVersionListProps {
   sourceAssetOptions: { id: string; label: string }[];
   canCreateVersions: boolean;
   canUpdateStatus: boolean;
+  canOverride: boolean;
   currentVersionReadiness: { ready: boolean; issues: string[] };
 }
 
@@ -330,9 +439,11 @@ export function ProofVersionList({
   sourceAssetOptions,
   canCreateVersions,
   canUpdateStatus,
+  canOverride,
   currentVersionReadiness,
 }: ProofVersionListProps) {
   const latestVersion = versions[0] ?? null;
+  const latestIsApproved = latestVersion?.status === "APPROVED";
 
   return (
     <div className="flex flex-col gap-2">
@@ -347,6 +458,7 @@ export function ProofVersionList({
               orderId={orderId}
               version={version}
               canUpdateStatus={canUpdateStatus}
+              canOverride={canOverride}
               isReadyForVersion={version.id === latestVersion?.id && currentVersionReadiness.ready}
               readinessIssues={
                 version.id === latestVersion?.id ? currentVersionReadiness.issues : []
@@ -355,12 +467,18 @@ export function ProofVersionList({
           ))}
         </div>
       )}
-      {canCreateVersions ? (
+      {canCreateVersions && (!latestIsApproved || canOverride) ? (
         <CreateProofVersionForm
           orderId={orderId}
           proofGroupId={proofGroupId}
           sourceAssetOptions={sourceAssetOptions}
+          requiresOverrideReason={latestIsApproved}
         />
+      ) : canCreateVersions && latestIsApproved ? (
+        <p className="text-xs text-muted">
+          This proof is approved and locked. Reopening it to create a new version requires the
+          proof-override permission.
+        </p>
       ) : null}
     </div>
   );

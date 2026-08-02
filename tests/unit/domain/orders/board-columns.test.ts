@@ -1,126 +1,140 @@
 import { describe, expect, it } from "vitest";
-import { OrderProofSummary, OrderStatus } from "@prisma/client";
+import { OrderStatus } from "@prisma/client";
 import {
   BOARD_COLUMNS,
   getBoardColumn,
   getBoardColumnKey,
   getInteractiveColumnKeys,
   isSpecialStatus,
+  type BoardOrderLike,
 } from "~/domain/orders/board-columns";
 
+function order(overrides: Partial<BoardOrderLike> = {}): BoardOrderLike {
+  return { workflowStatus: OrderStatus.NEW, tags: [], ...overrides };
+}
+
+describe("BOARD_COLUMNS display order", () => {
+  it("matches the requested left-to-right column order", () => {
+    expect(BOARD_COLUMNS.map((c) => c.key)).toEqual([
+      "new",
+      "order_sheet_printed",
+      "waiting_on_customer",
+      "proof_being_prepared",
+      "proof_sent",
+      "changes_requested",
+      "proof_approved",
+      "exported_for_print",
+      "pack",
+    ]);
+  });
+});
+
 describe("getBoardColumnKey", () => {
-  it("maps NEW to the New column", () => {
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.NEW,
-        proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-      }),
-    ).toBe("new");
+  it("maps NEW with no tags to New", () => {
+    expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.NEW }))).toBe("new");
   });
 
-  it("maps ARTWORK_REQUIRED and PROOFING_IN_PROGRESS to Proof Being Prepared", () => {
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.ARTWORK_REQUIRED,
-        proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-      }),
-    ).toBe("proof_being_prepared");
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.PROOFING_IN_PROGRESS,
-        proofSummary: OrderProofSummary.PROOFS_IN_PROGRESS,
-      }),
-    ).toBe("proof_being_prepared");
-  });
-
-  it("maps WAITING_CUSTOMER to Waiting on Customer", () => {
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.WAITING_CUSTOMER,
-        proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-      }),
-    ).toBe("waiting_on_customer");
-  });
-
-  it("maps PARTIALLY_APPROVED and READY_FOR_EXPORT workflow status to Proof Approved", () => {
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.PARTIALLY_APPROVED,
-        proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-      }),
-    ).toBe("proof_approved");
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.READY_FOR_EXPORT,
-        proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-      }),
-    ).toBe("proof_approved");
-  });
-
-  it("maps everything from EXPORTED_FOR_PRINT through FULFILLED to Exported for Print", () => {
+  it("maps ARTWORK_REQUIRED, PROOFING_IN_PROGRESS, and WAITING_CUSTOMER to Proof Being Prepared", () => {
     for (const status of [
-      OrderStatus.PARTIALLY_EXPORTED,
-      OrderStatus.EXPORTED_FOR_PRINT,
-      OrderStatus.IN_PRODUCTION,
-      OrderStatus.PARTIALLY_COMPLETE,
-      OrderStatus.READY_TO_PACK,
-      OrderStatus.PACKING,
+      OrderStatus.ARTWORK_REQUIRED,
+      OrderStatus.PROOFING_IN_PROGRESS,
+      OrderStatus.WAITING_CUSTOMER,
+    ]) {
+      expect(getBoardColumnKey(order({ workflowStatus: status }))).toBe("proof_being_prepared");
+    }
+  });
+
+  it('maps the "p" tag to Order Sheet Printed', () => {
+    expect(getBoardColumnKey(order({ tags: ["p"] }))).toBe("order_sheet_printed");
+  });
+
+  it('maps the "emailed" tag to Waiting on Customer', () => {
+    expect(getBoardColumnKey(order({ tags: ["emailed"] }))).toBe("waiting_on_customer");
+  });
+
+  it('maps the "proof_sent" tag to Proof Sent', () => {
+    expect(getBoardColumnKey(order({ tags: ["proof_sent"] }))).toBe("proof_sent");
+  });
+
+  it('maps the "proof_rejected" tag to Changes Requested', () => {
+    expect(getBoardColumnKey(order({ tags: ["proof_rejected"] }))).toBe("changes_requested");
+  });
+
+  it('maps the "proof_accepted" tag to Proof Approved', () => {
+    expect(getBoardColumnKey(order({ tags: ["proof_accepted"] }))).toBe("proof_approved");
+  });
+
+  it('maps the "Exported for Print" tag to Exported for Print', () => {
+    expect(getBoardColumnKey(order({ tags: ["Exported for Print"] }))).toBe("exported_for_print");
+  });
+
+  it("maps READY_TO_PACK and PACKING workflow status to Pack", () => {
+    expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.READY_TO_PACK }))).toBe("pack");
+    expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.PACKING }))).toBe("pack");
+  });
+
+  it("returns null for on-hold, cancelled, archived, and fulfilled orders — never on the main board", () => {
+    for (const status of [
+      OrderStatus.ON_HOLD,
+      OrderStatus.CANCELLED,
+      OrderStatus.ARCHIVED,
       OrderStatus.FULFILLED,
     ]) {
-      expect(
-        getBoardColumnKey({
-          workflowStatus: status,
-          proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-        }),
-      ).toBe("exported_for_print");
+      expect(getBoardColumnKey(order({ workflowStatus: status }))).toBeNull();
     }
   });
 
-  it("promotes to Changes Requested based on proofSummary regardless of workflowStatus", () => {
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.PROOFING_IN_PROGRESS,
-        proofSummary: OrderProofSummary.CHANGES_REQUESTED,
-      }),
-    ).toBe("changes_requested");
-  });
-
-  it("promotes to Proof Sent based on proofSummary regardless of workflowStatus", () => {
-    expect(
-      getBoardColumnKey({
-        workflowStatus: OrderStatus.ARTWORK_REQUIRED,
-        proofSummary: OrderProofSummary.WAITING_ON_CUSTOMER,
-      }),
-    ).toBe("proof_sent");
-  });
-
-  it("gives Changes Requested priority over Proof Sent when both could apply", () => {
-    // Not realistic data (proofSummary is a single value), but confirms
-    // BOARD_COLUMNS' declared priority order is what getBoardColumnKey uses.
-    expect(BOARD_COLUMNS[0]?.key).toBe("changes_requested");
-    expect(BOARD_COLUMNS[1]?.key).toBe("proof_sent");
-  });
-
-  it("returns null for on-hold, cancelled, and archived orders — never on the main board", () => {
-    for (const status of [OrderStatus.ON_HOLD, OrderStatus.CANCELLED, OrderStatus.ARCHIVED]) {
-      expect(
-        getBoardColumnKey({
-          workflowStatus: status,
-          proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-        }),
-      ).toBeNull();
-    }
-  });
-
-  it("never orphans a non-special OrderStatus value into no column", () => {
+  it("never orphans a non-special OrderStatus with no tags into no column", () => {
     for (const status of Object.values(OrderStatus)) {
       if (isSpecialStatus(status)) continue;
-      const key = getBoardColumnKey({
-        workflowStatus: status,
-        proofSummary: OrderProofSummary.PROOFS_NOT_STARTED,
-      });
-      expect(key).not.toBeNull();
+      expect(getBoardColumnKey(order({ workflowStatus: status }))).not.toBeNull();
     }
+  });
+
+  describe("match priority when multiple signals coexist on one order", () => {
+    it("Pack (workflowStatus) outranks every tag", () => {
+      expect(
+        getBoardColumnKey(
+          order({ workflowStatus: OrderStatus.READY_TO_PACK, tags: ["Exported for Print"] }),
+        ),
+      ).toBe("pack");
+    });
+
+    it("Exported for Print outranks proof_accepted", () => {
+      expect(
+        getBoardColumnKey(order({ tags: ["proof_accepted", "Exported for Print"] })),
+      ).toBe("exported_for_print");
+    });
+
+    it("proof_accepted outranks proof_rejected", () => {
+      expect(getBoardColumnKey(order({ tags: ["proof_rejected", "proof_accepted"] }))).toBe(
+        "proof_approved",
+      );
+    });
+
+    it("proof_rejected outranks proof_sent", () => {
+      expect(getBoardColumnKey(order({ tags: ["proof_sent", "proof_rejected"] }))).toBe(
+        "changes_requested",
+      );
+    });
+
+    it("proof_sent outranks emailed", () => {
+      expect(getBoardColumnKey(order({ tags: ["emailed", "proof_sent"] }))).toBe("proof_sent");
+    });
+
+    it("emailed outranks p", () => {
+      expect(getBoardColumnKey(order({ tags: ["p", "emailed"] }))).toBe("waiting_on_customer");
+    });
+
+    it('a stray "p" tag alongside a later-stage tag resolves to the later stage, not Order Sheet Printed', () => {
+      expect(getBoardColumnKey(order({ tags: ["p", "proof_accepted"] }))).toBe("proof_approved");
+    });
+
+    it("proof_being_prepared (workflowStatus) outranks the New catch-all", () => {
+      expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.PROOFING_IN_PROGRESS }))).toBe(
+        "proof_being_prepared",
+      );
+    });
   });
 });
 
@@ -130,24 +144,31 @@ describe("getBoardColumn", () => {
     expect(() => getBoardColumn("not_a_real_column")).toThrow();
   });
 
-  it("marks Changes Requested, Proof Sent, and Exported for Print as non-interactive", () => {
-    expect(getBoardColumn("changes_requested").interactive).toBe(false);
-    expect(getBoardColumn("proof_sent").interactive).toBe(false);
-    expect(getBoardColumn("exported_for_print").interactive).toBe(false);
+  it("marks the six tag-driven columns as non-interactive", () => {
+    for (const key of [
+      "order_sheet_printed",
+      "waiting_on_customer",
+      "proof_sent",
+      "changes_requested",
+      "proof_approved",
+      "exported_for_print",
+    ] as const) {
+      expect(getBoardColumn(key).interactive).toBe(false);
+      expect(getBoardColumn(key).readOnlyReason).toBeTruthy();
+    }
   });
 
-  it("marks New, Proof Being Prepared, Waiting on Customer, and Proof Approved as interactive", () => {
+  it("marks New, Proof Being Prepared, and Pack as interactive", () => {
     expect(getBoardColumn("new").interactive).toBe(true);
     expect(getBoardColumn("proof_being_prepared").interactive).toBe(true);
-    expect(getBoardColumn("waiting_on_customer").interactive).toBe(true);
-    expect(getBoardColumn("proof_approved").interactive).toBe(true);
+    expect(getBoardColumn("pack").interactive).toBe(true);
   });
 });
 
 describe("getInteractiveColumnKeys", () => {
-  it("returns exactly the four draggable columns", () => {
+  it("returns exactly the three draggable columns", () => {
     expect(getInteractiveColumnKeys().sort()).toEqual(
-      ["new", "proof_being_prepared", "waiting_on_customer", "proof_approved"].sort(),
+      ["new", "proof_being_prepared", "pack"].sort(),
     );
   });
 });

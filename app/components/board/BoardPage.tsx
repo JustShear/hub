@@ -9,6 +9,7 @@ import { BoardColumn } from "~/components/board/BoardColumn";
 import { BoardFiltersBar } from "~/components/board/BoardFiltersBar";
 import { BoardSearchInput } from "~/components/board/BoardSearchInput";
 import { SavedViewsMenu } from "~/components/board/SavedViewsMenu";
+import { ColumnVisibilityMenu } from "~/components/board/ColumnVisibilityMenu";
 import { SpecialStatusList } from "~/components/board/SpecialStatusList";
 import {
   boardFiltersToSearchParams,
@@ -34,8 +35,10 @@ export interface BoardPageProps {
   view: BoardView;
   filters: BoardFilters;
   sort: BoardSort;
+  visibleColumns: string[] | undefined;
   canManage: boolean;
   canViewIntegrations: boolean;
+  canCreateFreightShipments: boolean;
   board: LoadBoardResult | null;
   special: { cards: BoardCard[]; nextCursorId: string | null } | null;
   filterOptions: BoardFilterOptions;
@@ -52,6 +55,7 @@ const VIEW_TABS: { key: BoardView; label: string }[] = [
   { key: "on_hold", label: "On Hold" },
   { key: "cancelled", label: "Cancelled" },
   { key: "archived", label: "Archived" },
+  { key: "fulfilled", label: "Fulfilled" },
 ];
 
 export function BoardPage(props: BoardPageProps) {
@@ -59,8 +63,10 @@ export function BoardPage(props: BoardPageProps) {
     view,
     filters,
     sort,
+    visibleColumns,
     canManage,
     canViewIntegrations,
+    canCreateFreightShipments,
     board,
     special,
     filterOptions,
@@ -217,12 +223,26 @@ export function BoardPage(props: BoardPageProps) {
   }
 
   function handleSortChange(field: SortField) {
-    setSearchParams(boardFiltersToSearchParams(filters, { field }, view), { replace: true });
+    setSearchParams(boardFiltersToSearchParams(filters, { field }, view, visibleColumns), {
+      replace: true,
+    });
   }
 
   function handleViewChange(nextView: BoardView) {
-    setSearchParams(boardFiltersToSearchParams(filters, sort, nextView));
+    setSearchParams(boardFiltersToSearchParams(filters, sort, nextView, visibleColumns));
   }
+
+  function handleVisibleColumnsChange(next: string[] | undefined) {
+    setSearchParams(boardFiltersToSearchParams(filters, sort, view, next), { replace: true });
+  }
+
+  const displayedColumns = useMemo(
+    () =>
+      visibleColumns && visibleColumns.length > 0
+        ? columns.filter((c) => visibleColumns.includes(c.key))
+        : columns,
+    [columns, visibleColumns],
+  );
 
   const totalOrders = useMemo(
     () => columns.reduce((sum, col) => sum + col.cards.length, 0),
@@ -261,7 +281,7 @@ export function BoardPage(props: BoardPageProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <BoardSearchInput filters={filters} sort={sort} view={view} />
+        <BoardSearchInput filters={filters} sort={sort} view={view} visibleColumns={visibleColumns} />
         <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-page px-3 text-sm text-ink">
           Sort
           <select
@@ -278,11 +298,15 @@ export function BoardPage(props: BoardPageProps) {
             ))}
           </select>
         </label>
+        {view === "board" ? (
+          <ColumnVisibilityMenu visibleColumns={visibleColumns} onChange={handleVisibleColumnsChange} />
+        ) : null}
         <SavedViewsMenu
           savedViews={savedViews}
           currentFilters={filters}
           currentSort={sort}
           currentView={view}
+          currentVisibleColumns={visibleColumns}
         />
         {!canManage ? (
           <span className="text-xs text-muted">
@@ -292,7 +316,13 @@ export function BoardPage(props: BoardPageProps) {
       </div>
 
       {view === "board" ? (
-        <BoardFiltersBar filters={filters} sort={sort} view={view} filterOptions={filterOptions} />
+        <BoardFiltersBar
+          filters={filters}
+          sort={sort}
+          view={view}
+          visibleColumns={visibleColumns}
+          filterOptions={filterOptions}
+        />
       ) : null}
 
       {view === "board" ? (
@@ -304,12 +334,13 @@ export function BoardPage(props: BoardPageProps) {
         ) : (
           <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
             <div className="flex gap-3 overflow-x-auto pb-4">
-              {columns.map((column) => (
+              {displayedColumns.map((column) => (
                 <BoardColumn
                   key={column.key}
                   column={column}
                   canManage={canManage}
                   canViewIntegrations={canViewIntegrations}
+                  canCreateFreightShipments={canCreateFreightShipments}
                   pendingCardIds={pendingCardIds}
                   onMove={moveCard}
                   onLoadMore={loadMoreForColumn}

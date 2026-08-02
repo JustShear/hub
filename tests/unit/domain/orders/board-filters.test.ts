@@ -43,6 +43,30 @@ describe("parseBoardSearchParams", () => {
     const { filters: reparsed } = parseBoardSearchParams(rebuilt);
     expect(reparsed).toEqual(filters);
   });
+
+  it("defaults visibleColumns to undefined (every column shown) when no columns param is set", () => {
+    const { visibleColumns } = parseBoardSearchParams(new URLSearchParams());
+    expect(visibleColumns).toBeUndefined();
+  });
+
+  it("parses a comma-separated columns param into visibleColumns", () => {
+    const { visibleColumns } = parseBoardSearchParams(new URLSearchParams("columns=new,pack"));
+    expect(visibleColumns).toEqual(["new", "pack"]);
+  });
+
+  it("round-trips visibleColumns through boardFiltersToSearchParams", () => {
+    const { filters, sort, view } = parseBoardSearchParams(new URLSearchParams());
+    const rebuilt = boardFiltersToSearchParams(filters, sort, view, ["new", "pack"]);
+    expect(rebuilt.get("columns")).toBe("new,pack");
+    const { visibleColumns: reparsed } = parseBoardSearchParams(rebuilt);
+    expect(reparsed).toEqual(["new", "pack"]);
+  });
+
+  it("omits the columns param entirely when visibleColumns is undefined", () => {
+    const { filters, sort, view } = parseBoardSearchParams(new URLSearchParams());
+    const rebuilt = boardFiltersToSearchParams(filters, sort, view, undefined);
+    expect(rebuilt.has("columns")).toBe(false);
+  });
 });
 
 describe("isBoardFiltersEmpty", () => {

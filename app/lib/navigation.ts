@@ -57,7 +57,13 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { label: "Production", href: "/production", icon: Factory, implemented: false },
+      {
+        label: "Production",
+        href: "/production",
+        icon: Factory,
+        permission: "production_queue.view",
+        implemented: true,
+      },
       { label: "Warehouse", href: "/warehouse", icon: Warehouse, implemented: false },
       { label: "Packing", href: "/packing", icon: PackageCheck, implemented: false },
       { label: "Returns", href: "/returns", icon: RotateCcw, implemented: false },

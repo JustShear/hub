@@ -13,12 +13,18 @@ export interface ProofGroupSummaryInput {
   isNoProofRequired: boolean;
   /** True when this group has an open (unresolved) IntegrationFailure attached. */
   hasOpenIntegrationFailure: boolean;
+  /** True when the group's status is SENT or VIEWED — sent to the customer, no terminal response yet (Milestone 09). */
+  isWaitingOnCustomer: boolean;
+  /** True when the group's status is APPROVED — locked, customer has signed off (Milestone 09). */
+  isApproved: boolean;
+  /** True when the group's status is CHANGES_REQUESTED (Milestone 09). */
+  isChangesRequested: boolean;
+  /** True when the group's status is READY_FOR_EXPORT — production artwork prepared, not yet exported (Milestone 10). */
+  isReadyForExport: boolean;
+  /** True when the group's status is EXPORTED_FOR_PRINT (Milestone 10). */
+  isExportedForPrint: boolean;
 }
 
-// Milestone 08 only ever produces this subset — WAITING_ON_CUSTOMER,
-// CHANGES_REQUESTED, PARTIALLY_APPROVED, ALL_REQUIRED_PROOFS_APPROVED,
-// PARTIALLY_EXPORTED, and ALL_REQUIRED_PROOFS_EXPORTED all remain valid
-// enum members for later milestones but are never written here.
 export function calculateOrderProofSummary(
   nonCancelledGroups: ProofGroupSummaryInput[],
 ): OrderProofSummary {
@@ -37,8 +43,43 @@ export function calculateOrderProofSummary(
     return "BLOCKED";
   }
 
+  // A customer change-request is reported as its own distinct value rather
+  // than folded into BLOCKED — BLOCKED is reserved for a storage/integration
+  // problem the customer had no part in; CHANGES_REQUESTED is honest about
+  // whose action is actually needed next (artwork staff, on customer
+  // feedback), which BLOCKED would obscure.
+  if (requiredGroups.some((g) => g.isChangesRequested)) {
+    return "CHANGES_REQUESTED";
+  }
+
+  // Exported states take precedence over approved states — a group that
+  // has progressed to READY_FOR_EXPORT/EXPORTED_FOR_PRINT is further along
+  // than plain APPROVED, not a regression from it. There is no distinct
+  // "ready for export, not yet exported" order-level value — that
+  // intermediate step is only visible at the individual ProofGroup.status
+  // level; the order-level rollup only distinguishes approved vs exported.
+  if (requiredGroups.every((g) => g.isExportedForPrint)) {
+    return "ALL_REQUIRED_PROOFS_EXPORTED";
+  }
+
+  if (requiredGroups.some((g) => g.isExportedForPrint)) {
+    return "PARTIALLY_EXPORTED";
+  }
+
+  if (requiredGroups.every((g) => g.isApproved || g.isReadyForExport)) {
+    return "ALL_REQUIRED_PROOFS_APPROVED";
+  }
+
+  if (requiredGroups.some((g) => g.isApproved || g.isReadyForExport)) {
+    return "PARTIALLY_APPROVED";
+  }
+
   if (requiredGroups.every((g) => g.isReadyToSend)) {
     return "READY_TO_SEND";
+  }
+
+  if (requiredGroups.some((g) => g.isWaitingOnCustomer)) {
+    return "WAITING_ON_CUSTOMER";
   }
 
   if (requiredGroups.some((g) => g.hasAnyVersion)) {

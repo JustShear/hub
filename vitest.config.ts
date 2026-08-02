@@ -21,6 +21,8 @@ export default defineConfig({
       R2_SECRET_ACCESS_KEY: "test-secret",
       R2_BUCKET: "test-bucket",
       KLAVIYO_API_KEY: "pk_test",
+      STARSHIPIT_API_KEY: "test-starshipit-key",
+      STARSHIPIT_SUBSCRIPTION_KEY: "test-starshipit-subscription-key",
       SESSION_SECRET: "test-session-secret-at-least-32-characters-long",
     },
   },

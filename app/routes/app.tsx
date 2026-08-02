@@ -2,6 +2,10 @@ import { Outlet } from "react-router";
 import type { Route } from "./+types/app";
 import { requireStaffUser } from "~/auth/staff-session.server";
 import { countUnresolvedIntegrationFailures } from "~/domain/integrations/count-unresolved.server";
+import {
+  countUnreadNotifications,
+  loadRecentNotifications,
+} from "~/domain/notifications/notification-query.server";
 import { AppShell } from "~/components/shell/AppShell";
 
 // Pathless layout route — every authenticated page nests under this so the
@@ -11,15 +15,24 @@ import { AppShell } from "~/components/shell/AppShell";
 // ancestor for its own authorization.
 export async function loader({ request }: Route.LoaderArgs) {
   const staffUser = await requireStaffUser(request);
-  const integrationIssueCount = await countUnresolvedIntegrationFailures(staffUser.shopId);
-  return { staffUser, integrationIssueCount };
+  const [integrationIssueCount, notifications, unreadNotificationCount] = await Promise.all([
+    countUnresolvedIntegrationFailures(staffUser.shopId),
+    loadRecentNotifications(staffUser.id),
+    countUnreadNotifications(staffUser.id),
+  ]);
+  return { staffUser, integrationIssueCount, notifications, unreadNotificationCount };
 }
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
-  const { staffUser, integrationIssueCount } = loaderData;
+  const { staffUser, integrationIssueCount, notifications, unreadNotificationCount } = loaderData;
 
   return (
-    <AppShell staffUser={staffUser} integrationIssueCount={integrationIssueCount}>
+    <AppShell
+      staffUser={staffUser}
+      integrationIssueCount={integrationIssueCount}
+      notifications={notifications}
+      unreadNotificationCount={unreadNotificationCount}
+    >
       <Outlet />
     </AppShell>
   );

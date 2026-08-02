@@ -46,9 +46,16 @@ function toSummary(row: {
   };
 }
 
+// This board-specific module only ever reads/writes scope="board" rows —
+// Production/Warehouse/Exceptions saved views use the generic layer instead
+// (see app/domain/saved-views/generic-saved-view.server.ts), since their
+// filter shapes have nothing in common with BoardFilters. Both share the one
+// underlying SavedView table, partitioned by this scope column.
+const BOARD_SCOPE = "board";
+
 export async function listSavedViews(staffUserId: string): Promise<SavedViewSummary[]> {
   const rows = await db.savedView.findMany({
-    where: { staffUserId },
+    where: { staffUserId, scope: BOARD_SCOPE },
     orderBy: [{ isDefault: "desc" }, { name: "asc" }],
   });
   return rows.map(toSummary);
@@ -73,7 +80,7 @@ export async function createSavedView(input: CreateSavedViewInput): Promise<Save
 
   if (input.isDefault) {
     await db.savedView.updateMany({
-      where: { staffUserId: input.staffUserId },
+      where: { staffUserId: input.staffUserId, scope: BOARD_SCOPE },
       data: { isDefault: false },
     });
   }
@@ -81,6 +88,7 @@ export async function createSavedView(input: CreateSavedViewInput): Promise<Save
   const created = await db.savedView.create({
     data: {
       staffUserId: input.staffUserId,
+      scope: BOARD_SCOPE,
       name: input.name,
       isDefault: input.isDefault,
       filters: filtersColumn,
@@ -133,7 +141,7 @@ export async function updateSavedView(
 
   if (input.isDefault) {
     await db.savedView.updateMany({
-      where: { staffUserId: input.staffUserId },
+      where: { staffUserId: input.staffUserId, scope: BOARD_SCOPE },
       data: { isDefault: false },
     });
   }

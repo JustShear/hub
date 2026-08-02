@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { OrderProofSummary, OrderStatus, Priority } from "@prisma/client";
+import {
+  OrderProductionSummary,
+  OrderProofSummary,
+  OrderStatus,
+  OrderWarehousePickSummary,
+  Priority,
+} from "@prisma/client";
 import { compareCards, type BoardCard } from "~/domain/orders/board-query.server";
 
 function makeCard(overrides: Partial<BoardCard>): BoardCard {
@@ -19,6 +25,20 @@ function makeCard(overrides: Partial<BoardCard>): BoardCard {
     isWaitingOnCustomer: false,
     hasCustomerResponseAlert: false,
     isApprovedNotExported: false,
+    hasFailedProofDelivery: false,
+    hasMissingProductionArtwork: false,
+    hasReexportRequired: false,
+    productionSummary: OrderProductionSummary.NOT_READY,
+    hasOpenProductionIssue: false,
+    productionAssignedStaffName: null,
+    hasActiveFreightShipment: false,
+    freightTrackingNumber: null,
+    freightShipment: null,
+    isCancelled: false,
+    warehousePickSummary: OrderWarehousePickSummary.NOT_STARTED,
+    hasOpenWarehouseIssue: false,
+    hasShortPickItems: false,
+    hasOpenExceptionCase: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,
@@ -29,6 +49,11 @@ function makeCard(overrides: Partial<BoardCard>): BoardCard {
       requiringWorkCount: 0,
       noProofRequiredCount: 0,
       blockedCount: 0,
+      waitingOnCustomerCount: 0,
+      changesRequestedCount: 0,
+      approvedCount: 0,
+      readyForExportCount: 0,
+      exportedCount: 0,
       latestThumbnail: null,
       assignedStaffNames: [],
     },
