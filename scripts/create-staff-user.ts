@@ -6,17 +6,11 @@
 // Usage:
 //   npm run db:create-staff -- "paul@justshear.com" "Paul" MANAGER
 
+import { randomBytes } from "node:crypto";
 import { db } from "../app/lib/db.server";
 import { hashPassword } from "../app/auth/password.server";
 
 const VALID_ROLES = ["ADMINISTRATOR", "MANAGER", "ARTWORK_STAFF", "PRINT_STAFF", "PACKING_STAFF"];
-
-function generatePassword(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(18)))
-    .map((b) => b.toString(36).padStart(2, "0"))
-    .join("")
-    .slice(0, 24);
-}
 
 async function main() {
   const [email, name, roleName] = process.argv.slice(2);
@@ -47,7 +41,7 @@ async function main() {
     );
   }
 
-  const password = generatePassword();
+  const password = randomBytes(18).toString("base64url");
   const staffUser = await db.staffUser.create({
     data: {
       shopId: shop.id,
