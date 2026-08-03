@@ -182,7 +182,10 @@ export interface RawShopifyAddress {
 
 export interface RawShopifyLineItemAttribute {
   key: string;
-  value: string;
+  // Shopify's Admin GraphQL schema declares this nullable (confirmed against
+  // real order data — a custom attribute can have a null value, e.g. a
+  // cleared OPTIS property) even though it's easy to assume otherwise.
+  value: string | null;
 }
 
 export interface RawShopifyLineItem {
@@ -202,6 +205,45 @@ export interface RawShopifyFulfillment {
   status: string;
   createdAt: string;
   trackingInfo: { number: string | null; url: string | null; company: string | null }[];
+}
+
+const OPEN_ORDER_GIDS_QUERY = /* GraphQL */ `
+  query GetOpenOrderGids($cursor: String) {
+    orders(first: 100, after: $cursor, query: "status:open") {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+        }
+      }
+    }
+  }
+`;
+
+interface OpenOrderGidsQueryResponse {
+  orders: GraphQLConnectionPage<{ id: string }>;
+}
+
+// Lists every currently-open order's GID (Shopify's "not archived/cancelled"
+// definition of open) — deliberately lightweight (id only, no line items) so
+// a one-time historical backfill can enumerate what to import without
+// pulling full order payloads for orders it may skip. Pair with
+// importShopifyOrder for the actual per-order fetch+write.
+export async function fetchOpenShopifyOrderGids(
+  client: ShopifyGraphQLClientOptions,
+): Promise<string[]> {
+  const nodes = await paginateConnection<{ id: string }>(async (cursor) => {
+    const page = await shopifyGraphQLRequest<OpenOrderGidsQueryResponse>(
+      client,
+      OPEN_ORDER_GIDS_QUERY,
+      { cursor },
+    );
+    return page.orders;
+  });
+  return nodes.map((node) => node.id);
 }
 
 export interface RawShopifyOrder {

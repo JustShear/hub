@@ -33,6 +33,12 @@ describe("parseOptisLineProperties", () => {
     expect(result?.detectedType).toBe("UNKNOWN");
   });
 
+  it("treats a null value (Shopify's real, nullable customAttributes.value) as UNKNOWN rather than throwing", () => {
+    const [result] = parseOptisLineProperties([{ key: "Notes", value: null }]);
+    expect(result?.detectedType).toBe("UNKNOWN");
+    expect(result?.value).toBe("");
+  });
+
   it("uses knownSelectionPropertyNames to mark a configured property as SELECTION", () => {
     const [result] = parseOptisLineProperties([{ key: "Size", value: "Large" }], {
       knownSelectionPropertyNames: ["size"],

@@ -12,7 +12,9 @@ export type DetectedPropertyType = "TEXT" | "SELECTION" | "URL" | "FILE_UPLOAD" 
 
 export interface RawLineProperty {
   key: string;
-  value: string;
+  // Shopify's real schema allows a null value (e.g. a cleared OPTIS
+  // property) — confirmed against real order data, not just the type spec.
+  value: string | null;
 }
 
 export interface ParsedLineProperty {
@@ -74,7 +76,8 @@ export function parseOptisLineProperties(
   );
 
   return properties.map((property, index) => {
-    const trimmedValue = property.value.trim();
+    const value = property.value ?? "";
+    const trimmedValue = value.trim();
     const nameKey = property.key.toLowerCase();
     const isUrl = trimmedValue !== "" && looksLikeUrl(trimmedValue);
     const isFileUpload =
@@ -97,7 +100,7 @@ export function parseOptisLineProperties(
 
     return {
       name: property.key,
-      value: property.value,
+      value,
       sortOrder: index,
       detectedType,
       rawValue: property,

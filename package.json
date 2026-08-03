@@ -28,6 +28,7 @@
     "db:backup": "tsx scripts/backup-database.ts",
     "db:restore": "tsx scripts/restore-database.ts",
     "import:order": "tsx scripts/import-order.ts",
+    "import:open-orders": "tsx scripts/import-open-orders.ts",
     "register:webhooks": "tsx scripts/register-webhooks.ts",
     "backfill:lifecycle-tags": "tsx scripts/backfill-lifecycle-tags.ts"
   },
