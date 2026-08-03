@@ -24,6 +24,7 @@
     "db:seed:production-demo": "tsx scripts/seed-production-demo.ts",
     "db:seed:warehouse-demo": "tsx scripts/seed-warehouse-demo.ts",
     "db:reset-admin-password": "tsx scripts/reset-admin-password.ts",
+    "db:create-staff": "tsx scripts/create-staff-user.ts",
     "db:backup": "tsx scripts/backup-database.ts",
     "db:restore": "tsx scripts/restore-database.ts",
     "import:order": "tsx scripts/import-order.ts",
