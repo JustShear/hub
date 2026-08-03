@@ -31,7 +31,7 @@ export function canMoveOrderToColumn(
   }
 
   const targetColumn = getBoardColumn(targetColumnKey);
-  if (!targetColumn.interactive || !targetColumn.dropSetsWorkflowStatus) {
+  if (!targetColumn.interactive || !targetColumn.dropAction) {
     return {
       allowed: false,
       reason: targetColumn.readOnlyReason ?? `${targetColumn.label} can't be set from the board.`,

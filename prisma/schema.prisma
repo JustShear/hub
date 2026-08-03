@@ -106,6 +106,7 @@ model StaffRole {
 
 enum OrderStatus {
   NEW
+  PRE_ORDER
   ARTWORK_REQUIRED
   PROOFING_IN_PROGRESS
   WAITING_CUSTOMER

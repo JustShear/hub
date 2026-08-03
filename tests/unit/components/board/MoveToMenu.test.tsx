@@ -21,8 +21,10 @@ describe("MoveToMenu", () => {
     });
     expect(proofBeingPrepared).not.toHaveAttribute("data-disabled");
 
+    // Exported for Print is interactive too (a drop there syncs a real
+    // Shopify tag) — no longer a disabled destination.
     const exportedForPrint = screen.getByRole("menuitem", { name: "Exported for Print" });
-    expect(exportedForPrint).toHaveAttribute("data-disabled");
+    expect(exportedForPrint).not.toHaveAttribute("data-disabled");
 
     const changesRequested = screen.getByRole("menuitem", { name: "Changes Requested" });
     expect(changesRequested).toHaveAttribute("data-disabled");

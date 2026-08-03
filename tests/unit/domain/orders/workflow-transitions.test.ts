@@ -3,7 +3,7 @@ import { OrderStatus } from "@prisma/client";
 import { canMoveOrderToColumn } from "~/domain/orders/workflow-transitions";
 
 describe("canMoveOrderToColumn", () => {
-  it("allows moves between the three interactive columns", () => {
+  it("allows moves between the interactive columns", () => {
     expect(canMoveOrderToColumn(OrderStatus.NEW, "proof_being_prepared")).toMatchObject({
       allowed: true,
     });
@@ -13,16 +13,21 @@ describe("canMoveOrderToColumn", () => {
     expect(canMoveOrderToColumn(OrderStatus.READY_TO_PACK, "new")).toMatchObject({
       allowed: true,
     });
+    expect(canMoveOrderToColumn(OrderStatus.NEW, "pre_order")).toMatchObject({
+      allowed: true,
+    });
+    expect(canMoveOrderToColumn(OrderStatus.NEW, "exported_for_print")).toMatchObject({
+      allowed: true,
+    });
   });
 
-  it("rejects moving to any of the six tag-driven columns — not manually draggable", () => {
+  it("rejects moving to any of the five purely-tag-driven columns — not manually draggable", () => {
     for (const target of [
       "order_sheet_printed",
       "waiting_on_customer",
       "proof_sent",
       "changes_requested",
       "proof_approved",
-      "exported_for_print",
     ] as const) {
       const result = canMoveOrderToColumn(OrderStatus.NEW, target);
       expect(result.allowed).toBe(false);

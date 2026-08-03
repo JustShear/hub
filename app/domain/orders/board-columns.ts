@@ -10,6 +10,7 @@ import { OrderStatus, type Prisma } from "@prisma/client";
 export type BoardColumnKey =
   | "new"
   | "order_sheet_printed"
+  | "pre_order"
   | "waiting_on_customer"
   | "proof_being_prepared"
   | "proof_sent"
@@ -17,6 +18,14 @@ export type BoardColumnKey =
   | "proof_approved"
   | "exported_for_print"
   | "pack";
+
+// What a drop into an interactive column actually writes. Most interactive
+// columns are workflowStatus-driven; Exported for Print is the first
+// interactive column whose match condition is a Shopify tag (see the
+// RULES comment below) — a drop there syncs that tag instead.
+export type DropAction =
+  | { type: "workflowStatus"; status: OrderStatus }
+  | { type: "shopifyTag"; addTag: string; removeTags: string[] };
 
 export type SpecialViewKey = "on_hold" | "cancelled" | "archived" | "fulfilled";
 
@@ -39,8 +48,8 @@ export interface BoardColumnDefinition {
   purpose: string;
   /** Can a card be dropped INTO this column? */
   interactive: boolean;
-  /** The workflowStatus value a drop into this column sets. Only present when interactive. */
-  dropSetsWorkflowStatus?: OrderStatus;
+  /** What a drop into this column writes. Only present when interactive. */
+  dropAction?: DropAction;
   /** Shown in the UI (tooltip / Move-to menu) when interactive is false. */
   readOnlyReason?: string;
   /** Pure predicate — provably in sync with `where` below (both derived from the same rule, see deriveColumns). */
@@ -54,7 +63,7 @@ interface RawColumnRule {
   label: string;
   purpose: string;
   interactive: boolean;
-  dropSetsWorkflowStatus?: OrderStatus;
+  dropAction?: DropAction;
   readOnlyReason?: string;
   /** Lower number = checked first / more-advanced-wins. Independent of BOARD_COLUMNS' own (display) order below. */
   matchPriority: number;
@@ -85,7 +94,7 @@ const RULES: RawColumnRule[] = [
     label: "Pack",
     purpose: "Ready to pack — create a freight label directly from the card.",
     interactive: true,
-    dropSetsWorkflowStatus: OrderStatus.READY_TO_PACK,
+    dropAction: { type: "workflowStatus", status: OrderStatus.READY_TO_PACK },
     matchPriority: 1,
     ownMatches: (order) => (PACK_STATUSES as readonly OrderStatus[]).includes(order.workflowStatus),
     ownWhere: { workflowStatus: { in: [...PACK_STATUSES] } },
@@ -94,8 +103,18 @@ const RULES: RawColumnRule[] = [
     key: "exported_for_print",
     label: "Exported for Print",
     purpose: "Approved artwork has been exported for production.",
-    interactive: false,
-    readOnlyReason: "Set automatically once an export batch is created — not manually draggable.",
+    // Interactive as well as tag-driven: still matches purely off the real
+    // Shopify tag (so an order tagged "Exported for Print" directly in
+    // Shopify — or automatically, via createExportBatch — always lands
+    // here regardless of source), but a manual drop now also syncs that
+    // same tag to Shopify, rather than being read-only like the other
+    // tag-driven columns.
+    interactive: true,
+    dropAction: {
+      type: "shopifyTag",
+      addTag: "Exported for Print",
+      removeTags: ["proof_sent", "proof_rejected", "proof_accepted"],
+    },
     matchPriority: 2,
     ownMatches: (order) => order.tags.includes("Exported for Print"),
     ownWhere: { tags: { has: "Exported for Print" } },
@@ -157,21 +176,36 @@ const RULES: RawColumnRule[] = [
     label: "Proof Being Prepared",
     purpose: "Artwork work has started.",
     interactive: true,
-    dropSetsWorkflowStatus: OrderStatus.PROOFING_IN_PROGRESS,
+    dropAction: { type: "workflowStatus", status: OrderStatus.PROOFING_IN_PROGRESS },
     matchPriority: 8,
     ownMatches: (order) =>
       (PROOF_BEING_PREPARED_STATUSES as readonly OrderStatus[]).includes(order.workflowStatus),
     ownWhere: { workflowStatus: { in: [...PROOF_BEING_PREPARED_STATUSES] } },
   },
   {
+    key: "pre_order",
+    label: "Pre-Order",
+    purpose: "Known/paid orders held back until their production window opens.",
+    interactive: true,
+    dropAction: { type: "workflowStatus", status: OrderStatus.PRE_ORDER },
+    // Priority sits just above New: any real progress (a tag, or dragging
+    // into Proof Being Prepared/Pack) naturally graduates an order out of
+    // Pre-Order without staff needing to drag it out first, since those
+    // rules all outrank this one and the order's workflowStatus changes
+    // the moment it's dragged anywhere else.
+    matchPriority: 9,
+    ownMatches: (order) => order.workflowStatus === OrderStatus.PRE_ORDER,
+    ownWhere: { workflowStatus: OrderStatus.PRE_ORDER },
+  },
+  {
     key: "new",
     label: "New",
     purpose: "Imported orders awaiting review.",
     interactive: true,
-    dropSetsWorkflowStatus: OrderStatus.NEW,
+    dropAction: { type: "workflowStatus", status: OrderStatus.NEW },
     // The structural catch-all — an order lands here either because it's
     // genuinely brand-new, or because nothing more specific claimed it.
-    matchPriority: 9,
+    matchPriority: 10,
     ownMatches: () => true,
     ownWhere: {},
   },
@@ -191,7 +225,7 @@ function deriveColumns(rules: RawColumnRule[]): BoardColumnDefinition[] {
       label: rule.label,
       purpose: rule.purpose,
       interactive: rule.interactive,
-      dropSetsWorkflowStatus: rule.dropSetsWorkflowStatus,
+      dropAction: rule.dropAction,
       readOnlyReason: rule.readOnlyReason,
       matches: (order: BoardOrderLike) =>
         rule.ownMatches(order) && !higherPriority.some((h) => h.ownMatches(order)),
@@ -218,6 +252,7 @@ function columnFor(key: BoardColumnKey): BoardColumnDefinition {
 export const BOARD_COLUMNS: BoardColumnDefinition[] = [
   columnFor("new"),
   columnFor("order_sheet_printed"),
+  columnFor("pre_order"),
   columnFor("waiting_on_customer"),
   columnFor("proof_being_prepared"),
   columnFor("proof_sent"),

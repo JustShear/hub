@@ -197,7 +197,7 @@ describe("orders board route (integration)", () => {
     const formData = new FormData();
     formData.set("_intent", "move");
     formData.set("orderId", order.id);
-    formData.set("targetColumnKey", "exported_for_print");
+    formData.set("targetColumnKey", "proof_sent");
     formData.set("expectedWorkflowStatus", OrderStatus.NEW);
 
     const result = await action({

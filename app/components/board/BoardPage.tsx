@@ -114,8 +114,14 @@ export function BoardPage(props: BoardPageProps) {
       return;
     }
     const targetColumn = getBoardColumn(toKey);
-    const targetStatus = targetColumn.dropSetsWorkflowStatus;
-    if (!targetStatus || card.columnKey === toKey) return;
+    const dropAction = targetColumn.dropAction;
+    if (!dropAction || card.columnKey === toKey) return;
+
+    // Only a workflowStatus-driven drop changes that field optimistically —
+    // a shopifyTag drop (Exported for Print) leaves workflowStatus alone,
+    // since the board's placement there comes from the tag, not this field.
+    const nextWorkflowStatus =
+      dropAction.type === "workflowStatus" ? dropAction.status : card.workflowStatus;
 
     const fromKey = card.columnKey;
     setColumns((prev) =>
@@ -125,7 +131,7 @@ export function BoardPage(props: BoardPageProps) {
         if (col.key === toKey) {
           return {
             ...col,
-            cards: [{ ...card, workflowStatus: targetStatus, columnKey: toKey }, ...col.cards],
+            cards: [{ ...card, workflowStatus: nextWorkflowStatus, columnKey: toKey }, ...col.cards],
           };
         }
         return col;

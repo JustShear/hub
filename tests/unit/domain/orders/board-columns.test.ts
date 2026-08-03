@@ -18,6 +18,7 @@ describe("BOARD_COLUMNS display order", () => {
     expect(BOARD_COLUMNS.map((c) => c.key)).toEqual([
       "new",
       "order_sheet_printed",
+      "pre_order",
       "waiting_on_customer",
       "proof_being_prepared",
       "proof_sent",
@@ -71,6 +72,10 @@ describe("getBoardColumnKey", () => {
   it("maps READY_TO_PACK and PACKING workflow status to Pack", () => {
     expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.READY_TO_PACK }))).toBe("pack");
     expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.PACKING }))).toBe("pack");
+  });
+
+  it("maps PRE_ORDER workflow status to Pre-Order", () => {
+    expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.PRE_ORDER }))).toBe("pre_order");
   });
 
   it("returns null for on-hold, cancelled, archived, and fulfilled orders — never on the main board", () => {
@@ -135,6 +140,18 @@ describe("getBoardColumnKey", () => {
         "proof_being_prepared",
       );
     });
+
+    it('a "p" tag outranks PRE_ORDER workflow status — real progress graduates the order out of Pre-Order', () => {
+      expect(
+        getBoardColumnKey(order({ workflowStatus: OrderStatus.PRE_ORDER, tags: ["p"] })),
+      ).toBe("order_sheet_printed");
+    });
+
+    it("PRE_ORDER outranks the New catch-all", () => {
+      expect(getBoardColumnKey(order({ workflowStatus: OrderStatus.PRE_ORDER }))).toBe(
+        "pre_order",
+      );
+    });
   });
 });
 
@@ -144,31 +161,46 @@ describe("getBoardColumn", () => {
     expect(() => getBoardColumn("not_a_real_column")).toThrow();
   });
 
-  it("marks the six tag-driven columns as non-interactive", () => {
+  it("marks the five purely-tag-driven columns as non-interactive", () => {
     for (const key of [
       "order_sheet_printed",
       "waiting_on_customer",
       "proof_sent",
       "changes_requested",
       "proof_approved",
-      "exported_for_print",
     ] as const) {
       expect(getBoardColumn(key).interactive).toBe(false);
       expect(getBoardColumn(key).readOnlyReason).toBeTruthy();
     }
   });
 
-  it("marks New, Proof Being Prepared, and Pack as interactive", () => {
+  it("marks New, Pre-Order, Proof Being Prepared, Exported for Print, and Pack as interactive", () => {
     expect(getBoardColumn("new").interactive).toBe(true);
+    expect(getBoardColumn("pre_order").interactive).toBe(true);
     expect(getBoardColumn("proof_being_prepared").interactive).toBe(true);
+    expect(getBoardColumn("exported_for_print").interactive).toBe(true);
     expect(getBoardColumn("pack").interactive).toBe(true);
+  });
+
+  it("gives Exported for Print a shopifyTag drop action, not a workflowStatus one", () => {
+    const column = getBoardColumn("exported_for_print");
+    expect(column.dropAction).toEqual({
+      type: "shopifyTag",
+      addTag: "Exported for Print",
+      removeTags: ["proof_sent", "proof_rejected", "proof_accepted"],
+    });
+  });
+
+  it("gives Pre-Order a workflowStatus drop action", () => {
+    const column = getBoardColumn("pre_order");
+    expect(column.dropAction).toEqual({ type: "workflowStatus", status: OrderStatus.PRE_ORDER });
   });
 });
 
 describe("getInteractiveColumnKeys", () => {
-  it("returns exactly the three draggable columns", () => {
+  it("returns exactly the five draggable columns", () => {
     expect(getInteractiveColumnKeys().sort()).toEqual(
-      ["new", "proof_being_prepared", "pack"].sort(),
+      ["new", "pre_order", "proof_being_prepared", "exported_for_print", "pack"].sort(),
     );
   });
 });

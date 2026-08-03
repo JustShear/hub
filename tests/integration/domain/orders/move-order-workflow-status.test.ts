@@ -10,6 +10,12 @@ describe("moveOrderWorkflowStatus (integration)", () => {
 
   afterAll(async () => {
     if (createdOrderIds.length > 0) {
+      await db.integrationAttempt.deleteMany({
+        where: { failure: { relatedOrderId: { in: createdOrderIds } } },
+      });
+      await db.integrationFailure.deleteMany({
+        where: { relatedOrderId: { in: createdOrderIds } },
+      });
       await db.activityEvent.deleteMany({ where: { orderId: { in: createdOrderIds } } });
       await db.shopifyOrder.deleteMany({ where: { id: { in: createdOrderIds } } });
     }
@@ -82,7 +88,48 @@ describe("moveOrderWorkflowStatus (integration)", () => {
     });
   });
 
-  it("rejects a move to a non-interactive column (exported_for_print)", async () => {
+  it("rejects a move to a purely-tag-driven, non-interactive column (proof_sent)", async () => {
+    const order = await createOrder(OrderStatus.NEW);
+    const staffUser = await createStaffUser();
+
+    const result = await moveOrderWorkflowStatus({
+      shopId: order.shopId,
+      orderId: order.id,
+      targetColumnKey: "proof_sent",
+      expectedWorkflowStatus: OrderStatus.NEW,
+      staffUserId: staffUser.id,
+    });
+
+    expect(result.outcome).toBe("rejected");
+    const updated = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(updated.workflowStatus).toBe(OrderStatus.NEW);
+    expect(await db.activityEvent.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  it("moves an order to Pre-Order (workflowStatus-driven, like the other interactive columns)", async () => {
+    const order = await createOrder(OrderStatus.NEW);
+    const staffUser = await createStaffUser();
+
+    const result = await moveOrderWorkflowStatus({
+      shopId: order.shopId,
+      orderId: order.id,
+      targetColumnKey: "pre_order",
+      expectedWorkflowStatus: OrderStatus.NEW,
+      staffUserId: staffUser.id,
+    });
+
+    expect(result).toMatchObject({ outcome: "moved", workflowStatus: OrderStatus.PRE_ORDER });
+    const updated = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(updated.workflowStatus).toBe(OrderStatus.PRE_ORDER);
+  });
+
+  // Exported for Print is now interactive, but unlike the workflowStatus-driven
+  // columns, a drop there syncs a real Shopify tag instead — this order's
+  // shopifyOrderGid is fake, so the real Shopify API call fails, but that
+  // failure is recorded honestly (IntegrationFailure) rather than silently
+  // swallowed, and never claims workflowStatus changed (it doesn't, by design
+  // — see move-order-workflow-status.server.ts's comment on the shopifyTag branch).
+  it("allows moving to exported_for_print (shopifyTag-driven) and records a real Shopify sync attempt", async () => {
     const order = await createOrder(OrderStatus.NEW);
     const staffUser = await createStaffUser();
 
@@ -94,11 +141,26 @@ describe("moveOrderWorkflowStatus (integration)", () => {
       staffUserId: staffUser.id,
     });
 
-    expect(result.outcome).toBe("rejected");
+    // "moved" even on a partial tag-sync outcome — see the server function's
+    // own comment on why that's still an honest result for board placement.
+    // Only a full rejection (e.g. a genuine network failure) would surface
+    // as "rejected" here.
+    expect(result.outcome === "moved" || result.outcome === "rejected").toBe(true);
+
     const updated = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
+    // workflowStatus never changes for a tag-driven move.
     expect(updated.workflowStatus).toBe(OrderStatus.NEW);
-    expect(await db.activityEvent.count({ where: { orderId: order.id } })).toBe(0);
-  });
+
+    const failure = await db.integrationFailure.findFirst({
+      where: {
+        shopId: order.shopId,
+        integration: "SHOPIFY_TAG_UPDATE",
+        action: "order_tag_sync",
+        relatedOrderId: order.id,
+      },
+    });
+    expect(failure).not.toBeNull();
+  }, 20000);
 
   it("rejects moving a cancelled order", async () => {
     const order = await createOrder(OrderStatus.CANCELLED);

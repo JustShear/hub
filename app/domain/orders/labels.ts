@@ -8,6 +8,7 @@ import type { DueDateState } from "~/lib/dates";
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   NEW: "New",
+  PRE_ORDER: "Pre-order",
   ARTWORK_REQUIRED: "Artwork required",
   PROOFING_IN_PROGRESS: "Proofing in progress",
   WAITING_CUSTOMER: "Waiting on customer",
