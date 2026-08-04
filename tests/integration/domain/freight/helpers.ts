@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { OrderProductionSummary } from "@prisma/client";
+import type { OrderProductionSummary, OrderStatus } from "@prisma/client";
 import { db } from "~/lib/db.server";
 
 const VALID_SHIPPING_ADDRESS = {
@@ -61,6 +61,7 @@ export function createFreightTestTracker() {
       productionSummary?: OrderProductionSummary;
       shippingAddress?: unknown;
       cancelledAt?: Date | null;
+      workflowStatus?: OrderStatus;
     } = {},
   ) {
     const shop = await db.shop.findFirstOrThrow();
@@ -80,6 +81,7 @@ export function createFreightTestTracker() {
             ? VALID_SHIPPING_ADDRESS
             : (overrides.shippingAddress as never),
         cancelledAt: overrides.cancelledAt ?? undefined,
+        workflowStatus: overrides.workflowStatus,
       },
     });
     orderIds.push(order.id);

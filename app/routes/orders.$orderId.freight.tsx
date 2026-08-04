@@ -6,6 +6,7 @@ import { createFreightShipment } from "~/domain/freight/create-freight-shipment.
 import { cancelFreightShipment } from "~/domain/freight/cancel-freight-shipment.server";
 import { syncFreightTrackingToShopify } from "~/domain/freight/sync-tracking-to-shopify.server";
 import { getDeliveryRates } from "~/domain/freight/get-delivery-rates.server";
+import { markOrderFulfilledManually } from "~/domain/freight/mark-order-fulfilled-manually.server";
 
 function formOptionalFloat(formData: FormData, key: string): number | null {
   const raw = formStringOrNull(formData, key);
@@ -103,6 +104,21 @@ export async function action({ request, params }: Route.ActionArgs) {
     const result = await syncFreightTrackingToShopify({
       shopId: staffUser.shopId,
       freightShipmentId: formString(formData, "freightShipmentId"),
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent, ok: false, error: result.reason };
+    }
+    return { intent, ok: true };
+  }
+
+  if (intent === "markFulfilledManually") {
+    if (!hasPermission(staffUser, "freight_shipments.create")) {
+      return { intent, ok: false, error: "You don't have permission to mark orders fulfilled." };
+    }
+    const result = await markOrderFulfilledManually({
+      shopId: staffUser.shopId,
+      orderId,
       staffUserId: staffUser.id,
     });
     if (result.outcome === "rejected") {

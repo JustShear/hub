@@ -70,7 +70,60 @@ export function PackCardFreightControls({
     );
   }
 
-  return <CreatePackFreightForm orderId={orderId} />;
+  return (
+    <div className="flex flex-col gap-2">
+      <CreatePackFreightForm orderId={orderId} />
+      <MarkFulfilledButton orderId={orderId} />
+    </div>
+  );
+}
+
+type MarkFulfilledResponse =
+  | { intent: "markFulfilledManually"; ok: true }
+  | { intent: "markFulfilledManually"; ok: false; error: string };
+
+// The "no label" path — for orders that don't need shipping (local pickup,
+// hand delivery, a carrier this app doesn't integrate with). Separate from
+// CreatePackFreightForm since it needs none of that form's weight/dimension
+// inputs; see mark-order-fulfilled-manually.server.ts for what it actually does.
+function MarkFulfilledButton({ orderId }: { orderId: string }) {
+  const fetcher = useFetcher<MarkFulfilledResponse>();
+  const revalidator = useRevalidator();
+  const response = fetcher.data;
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && response?.ok) {
+      // Once FULFILLED, the order drops off the board entirely — revalidate
+      // so it disappears from Pack without waiting for the next poll.
+      void revalidator.revalidate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetcher.state, response]);
+
+  return (
+    <fetcher.Form
+      method="post"
+      action={`/orders/${orderId}/freight`}
+      onClick={(e) => {
+        // Stop the click reaching the draggable card wrapper.
+        e.stopPropagation();
+      }}
+    >
+      <input type="hidden" name="_intent" value="markFulfilledManually" />
+      {response && !response.ok ? (
+        <p role="alert" className="text-[11px] text-error">
+          {response.error}
+        </p>
+      ) : null}
+      <button
+        type="submit"
+        disabled={fetcher.state !== "idle"}
+        className="self-start text-[11px] text-muted underline hover:text-ink disabled:opacity-50"
+      >
+        {fetcher.state !== "idle" ? "Marking fulfilled…" : "Mark fulfilled — no label needed"}
+      </button>
+    </fetcher.Form>
+  );
 }
 
 function CreatePackFreightForm({ orderId }: { orderId: string }) {
