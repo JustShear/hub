@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, MoreVertical, X } from "lucide-react";
+import { AlertTriangle, Mail, MoreVertical, Phone, X } from "lucide-react";
 import type { OrderDetail } from "~/domain/orders/order-detail-query.server";
 import { ORDER_STATUS_LABELS } from "~/domain/orders/labels";
 import { PriorityBadge } from "~/components/board/CardBadges";
@@ -173,6 +173,28 @@ export function OrderDrawer({
                 <p className="mt-0.5 truncate text-sm text-muted">
                   {order.customerName ?? "No customer name on file"}
                 </p>
+                {order.customerEmail || order.customerPhone ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
+                    {order.customerEmail ? (
+                      <a
+                        href={`mailto:${order.customerEmail}`}
+                        className="flex items-center gap-1 text-brand-navy hover:underline"
+                      >
+                        <Mail aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                        {order.customerEmail}
+                      </a>
+                    ) : null}
+                    {order.customerPhone ? (
+                      <a
+                        href={`tel:${order.customerPhone}`}
+                        className="flex items-center gap-1 text-brand-navy hover:underline"
+                      >
+                        <Phone aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                        {order.customerPhone}
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <DropdownMenu.Root>
