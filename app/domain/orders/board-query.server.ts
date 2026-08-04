@@ -191,6 +191,8 @@ export interface BoardCard {
   hasShortPickItems: boolean;
   /** An open (non-resolved/cancelled) ExceptionCase exists somewhere on this order (Milestone 14). */
   hasOpenExceptionCase: boolean;
+  /** At least one line has a customer-uploaded file (OPTIS/Shopify FILE_UPLOAD property) linked via CustomerArtworkAsset. */
+  hasCustomerUpload: boolean;
   /** Null only for special-view (on hold / cancelled / archived) cards. */
   columnKey: BoardColumnKey | null;
   lines: BoardCardProductLine[];
@@ -294,6 +296,7 @@ function toBoardCard(
   freightShipmentByOrderId: Map<string, BoardCardFreightShipment>,
   warehousePickIndicators: { openIssueOrderIds: Set<string>; shortItemOrderIds: Set<string> },
   openExceptionCaseOrderIds: Set<string>,
+  customerUploadOrderIds: Set<string>,
 ): BoardCard {
   return {
     id: row.id,
@@ -330,6 +333,7 @@ function toBoardCard(
     hasOpenWarehouseIssue: warehousePickIndicators.openIssueOrderIds.has(row.id),
     hasShortPickItems: warehousePickIndicators.shortItemOrderIds.has(row.id),
     hasOpenExceptionCase: openExceptionCaseOrderIds.has(row.id),
+    hasCustomerUpload: customerUploadOrderIds.has(row.id),
     columnKey: getBoardColumnKey(row),
     lines: row.lines.map((line) => ({
       id: line.id,
@@ -560,6 +564,22 @@ async function loadOpenExceptionCaseOrderIds(orderIds: string[]): Promise<Set<st
   return new Set(cases.map((c) => c.orderId));
 }
 
+// Same batched, no-N+1 pattern as loadOpenExceptionCaseOrderIds —
+// ArtworkOrderLineLink only has a FK to ShopifyOrderLine (not directly to
+// ShopifyOrder), so this joins through orderLine.orderId rather than a
+// direct where clause. Existence of a link is exactly "the importer
+// detected a FILE_UPLOAD OPTIS/Shopify line property for this order" (see
+// import-order.server.ts), so this is a free, already-computed proxy —
+// nothing needs re-parsing here.
+async function loadOrderIdsWithCustomerUpload(orderIds: string[]): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const links = await db.artworkOrderLineLink.findMany({
+    where: { orderLine: { orderId: { in: orderIds } } },
+    select: { orderLine: { select: { orderId: true } } },
+  });
+  return new Set(links.map((l) => l.orderLine.orderId));
+}
+
 async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   blockedProofGroupIds: Set<string>;
   staffNames: Map<string, string>;
@@ -570,6 +590,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   freightShipmentByOrderId: Map<string, BoardCardFreightShipment>;
   warehousePickIndicators: { openIssueOrderIds: Set<string>; shortItemOrderIds: Set<string> };
   openExceptionCaseOrderIds: Set<string>;
+  customerUploadOrderIds: Set<string>;
 }> {
   const proofGroupIds = rows.flatMap((r) => r.proofGroups.map((g) => g.id));
   const staffIds = rows.flatMap((r) => r.proofGroups.map((g) => g.assignedStaffId));
@@ -584,6 +605,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     freightShipmentByOrderId,
     warehousePickIndicators,
     openExceptionCaseOrderIds,
+    customerUploadOrderIds,
   ] = await Promise.all([
     loadBlockedProofGroupIds(proofGroupIds),
     resolveStaffNames(staffIds),
@@ -594,6 +616,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     loadFreightShipmentsByOrderId(orderIds),
     loadWarehousePickIndicatorsByOrderId(orderIds),
     loadOpenExceptionCaseOrderIds(orderIds),
+    loadOrderIdsWithCustomerUpload(orderIds),
   ]);
   return {
     blockedProofGroupIds,
@@ -605,6 +628,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     freightShipmentByOrderId,
     warehousePickIndicators,
     openExceptionCaseOrderIds,
+    customerUploadOrderIds,
   };
 }
 
@@ -800,6 +824,7 @@ export async function loadBoardColumns(params: {
     freightShipmentByOrderId,
     warehousePickIndicators,
     openExceptionCaseOrderIds,
+    customerUploadOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -814,6 +839,7 @@ export async function loadBoardColumns(params: {
       freightShipmentByOrderId,
       warehousePickIndicators,
       openExceptionCaseOrderIds,
+      customerUploadOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -884,6 +910,7 @@ export async function loadMoreForColumn(params: {
         freightShipmentByOrderId,
         warehousePickIndicators,
         openExceptionCaseOrderIds,
+        customerUploadOrderIds,
       ),
     );
     cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -912,6 +939,7 @@ export async function loadMoreForColumn(params: {
     freightShipmentByOrderId,
     warehousePickIndicators,
     openExceptionCaseOrderIds,
+    customerUploadOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -926,6 +954,7 @@ export async function loadMoreForColumn(params: {
       freightShipmentByOrderId,
       warehousePickIndicators,
       openExceptionCaseOrderIds,
+      customerUploadOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -966,6 +995,7 @@ export async function loadSpecialView(params: {
     freightShipmentByOrderId,
     warehousePickIndicators,
     openExceptionCaseOrderIds,
+    customerUploadOrderIds,
   } = await loadProofGroupBoardContext(rows);
   const cards = rows.map((row) =>
     toBoardCard(
@@ -980,6 +1010,7 @@ export async function loadSpecialView(params: {
       freightShipmentByOrderId,
       warehousePickIndicators,
       openExceptionCaseOrderIds,
+      customerUploadOrderIds,
     ),
   );
   const last = rows.at(-1);

@@ -337,4 +337,66 @@ describe("loadBoardColumns (integration)", () => {
 
     await db.freightShipment.delete({ where: { id: shipment.id } });
   });
+
+  it("reports hasCustomerUpload only for an order with a linked CustomerArtworkAsset, not a plain order", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const uploadOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(uploadOrder.id);
+    const line = await db.shopifyOrderLine.create({
+      data: {
+        orderId: uploadOrder.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Personalised Jumper",
+        quantity: 1,
+      },
+    });
+    const asset = await db.customerArtworkAsset.create({
+      data: {
+        shopId: shop.id,
+        sourceUrl: `https://cdn.shopify.com/s/files/1/upload-${randomUUID()}.png`,
+        sourceType: "EXTERNAL_REFERENCE",
+      },
+    });
+    const link = await db.artworkOrderLineLink.create({
+      data: { assetId: asset.id, orderLineId: line.id },
+    });
+
+    const plainOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(plainOrder.id);
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const cards = result.columns.flatMap((c) => c.cards);
+    expect(cards.find((c) => c.id === uploadOrder.id)?.hasCustomerUpload).toBe(true);
+    expect(cards.find((c) => c.id === plainOrder.id)?.hasCustomerUpload).toBe(false);
+
+    await db.artworkOrderLineLink.delete({ where: { id: link.id } });
+    await db.customerArtworkAsset.delete({ where: { id: asset.id } });
+  });
 });

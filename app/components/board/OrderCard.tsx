@@ -92,9 +92,9 @@ export function OrderCard({
     <div
       ref={draggable.setNodeRef}
       style={style}
-      className={`flex flex-col gap-2 rounded-lg border border-border bg-surface p-3 text-sm shadow-sm ${
-        draggable.isDragging ? "opacity-50" : ""
-      } ${isPending ? "opacity-70" : ""}`}
+      className={`flex flex-col gap-2 rounded-lg border border-border p-3 text-sm shadow-sm ${
+        card.hasCustomerUpload ? "bg-accent-pink" : "bg-surface"
+      } ${draggable.isDragging ? "opacity-50" : ""} ${isPending ? "opacity-70" : ""}`}
     >
       <div className="flex items-start justify-between gap-2">
         <Link

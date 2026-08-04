@@ -43,6 +43,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasOpenWarehouseIssue: false,
     hasShortPickItems: false,
     hasOpenExceptionCase: false,
+    hasCustomerUpload: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,
@@ -247,6 +248,20 @@ describe("OrderCard", () => {
       false,
     );
     expect(screen.queryByText("Weight (kg)")).not.toBeInTheDocument();
+  });
+
+  it("tints the card light pink when it has a customer upload (OPTIS/Shopify file upload)", () => {
+    renderCard(makeCard({ orderNumber: "#1002", hasCustomerUpload: true }), true);
+    expect(screen.getByRole("link", { name: "#1002" }).closest("div.rounded-lg")).toHaveClass(
+      "bg-accent-pink",
+    );
+  });
+
+  it("keeps the default card background when there is no customer upload", () => {
+    renderCard(makeCard({ orderNumber: "#1003", hasCustomerUpload: false }), true);
+    expect(screen.getByRole("link", { name: "#1003" }).closest("div.rounded-lg")).toHaveClass(
+      "bg-surface",
+    );
   });
 
   it("shows the existing shipment's status instead of the create form when one already exists", () => {
