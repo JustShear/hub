@@ -81,6 +81,7 @@ describe("processShopifySyncJob (integration)", () => {
       orderId: order.id,
       wasNewOrder: true,
       wasCancelledJustNow: false,
+      wasFulfilledJustNow: false,
       changeDescriptions: [],
     });
 
@@ -180,6 +181,7 @@ describe("processShopifySyncJob (integration)", () => {
       orderId: order.id,
       wasNewOrder: false,
       wasCancelledJustNow: false,
+      wasFulfilledJustNow: false,
       changeDescriptions: [],
     });
     await processShopifySyncJob(job.id);

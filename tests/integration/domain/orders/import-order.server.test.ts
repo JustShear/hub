@@ -474,6 +474,76 @@ describe("importShopifyOrder (integration)", () => {
     expect(activityCount).toBe(1); // only the original ORDER_IMPORTED event
   });
 
+  it("moves an in-flight order to Fulfilled when Shopify shows it fulfilled directly (bypassing the Hub)", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder();
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+
+    await db.shopifyOrder.update({
+      where: { id: created.orderId },
+      data: { workflowStatus: "READY_TO_PACK" },
+    });
+
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(
+      buildRawOrder({ id: raw.id, displayFulfillmentStatus: "FULFILLED" }),
+    );
+    const result = await importShopifyOrder(shop.id, raw.id);
+
+    expect(result.wasFulfilledJustNow).toBe(true);
+
+    const order = await db.shopifyOrder.findUniqueOrThrow({
+      where: { id: created.orderId },
+      include: { activity: true },
+    });
+    expect(order.workflowStatus).toBe("FULFILLED");
+    expect(order.workflowStatusChangedAt).not.toBeNull();
+    expect(order.activity.some((e) => e.eventType === "ORDER_FULFILLED_IN_SHOPIFY")).toBe(true);
+  });
+
+  it("does not auto-move an order already in a special status, even if Shopify shows it fulfilled", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder();
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+
+    await db.shopifyOrder.update({
+      where: { id: created.orderId },
+      data: { workflowStatus: "ON_HOLD" },
+    });
+
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(
+      buildRawOrder({ id: raw.id, displayFulfillmentStatus: "FULFILLED" }),
+    );
+    const result = await importShopifyOrder(shop.id, raw.id);
+
+    expect(result.wasFulfilledJustNow).toBe(false);
+
+    const order = await db.shopifyOrder.findUniqueOrThrow({ where: { id: created.orderId } });
+    expect(order.workflowStatus).toBe("ON_HOLD");
+  });
+
+  it("marks a brand-new order Fulfilled immediately if it arrives already fulfilled in Shopify, alongside the import event", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder({ displayFulfillmentStatus: "FULFILLED" });
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+
+    const result = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(result.orderId);
+
+    expect(result.wasFulfilledJustNow).toBe(true);
+
+    const order = await db.shopifyOrder.findUniqueOrThrow({
+      where: { id: result.orderId },
+      include: { activity: true },
+    });
+    expect(order.workflowStatus).toBe("FULFILLED");
+    expect(order.activity.some((e) => e.eventType === "ORDER_IMPORTED")).toBe(true);
+    expect(order.activity.some((e) => e.eventType === "ORDER_FULFILLED_IN_SHOPIFY")).toBe(true);
+  });
+
   it("records a specific activity event when Shopify tags change", async () => {
     const shop = await getShop();
     const raw = buildRawOrder({ tags: ["preorder"] });

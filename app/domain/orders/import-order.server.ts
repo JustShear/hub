@@ -1,4 +1,4 @@
-import { Prisma, ActorType, type ShopifyOrder, type ShopifyOrderLine } from "@prisma/client";
+import { Prisma, ActorType, OrderStatus, type ShopifyOrder, type ShopifyOrderLine } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import {
   fetchShopifyOrder,
@@ -7,6 +7,7 @@ import {
 } from "~/adapters/shopify/orders.server";
 import { parseOptisLineProperties } from "~/domain/orders/optis-property-parser";
 import { selectLineImage } from "~/domain/orders/select-line-image";
+import { isSpecialStatus } from "~/domain/orders/board-columns";
 
 export class OrderNotFoundError extends Error {
   constructor(shopifyOrderGid: string) {
@@ -19,6 +20,7 @@ export interface ImportShopifyOrderResult {
   orderId: string;
   wasNewOrder: boolean;
   wasCancelledJustNow: boolean;
+  wasFulfilledJustNow: boolean;
   changeDescriptions: string[];
 }
 
@@ -112,7 +114,32 @@ export async function importShopifyOrder(
 
   const wasNewOrder = !existingOrder;
   const wasCancelledJustNow = Boolean(rawOrder.cancelledAt) && !existingOrder?.cancelledAt;
-  const changeDescriptions = existingOrder ? detectMaterialChanges(existingOrder, rawOrder) : [];
+
+  // Deliberate, narrow exception to "a Shopify sync never overwrites
+  // Hub-owned fields": if staff fulfil an order directly in Shopify —
+  // outside the Hub entirely, which happens during the migration period
+  // while the team is still getting used to the board — the Hub would
+  // otherwise never notice, and the card would sit wherever it was
+  // forever. Scoped tightly: only fires when Shopify says fully FULFILLED,
+  // the order isn't already in a special status (on hold/cancelled/
+  // archived/already fulfilled — never silently override those), and it
+  // didn't just get cancelled in this same sync.
+  const currentWorkflowStatus = existingOrder?.workflowStatus ?? OrderStatus.NEW;
+  const wasFulfilledJustNow =
+    !wasCancelledJustNow &&
+    rawOrder.displayFulfillmentStatus === "FULFILLED" &&
+    !isSpecialStatus(currentWorkflowStatus);
+
+  const rawChangeDescriptions = existingOrder ? detectMaterialChanges(existingOrder, rawOrder) : [];
+  // Superseded by the dedicated ORDER_FULFILLED_IN_SHOPIFY event below —
+  // logging both would say the same real-world thing twice.
+  const changeDescriptions = wasFulfilledJustNow
+    ? rawChangeDescriptions.filter((d) => d !== "Fulfilment status changed")
+    : rawChangeDescriptions;
+
+  const fulfillmentSyncFields = wasFulfilledJustNow
+    ? { workflowStatus: OrderStatus.FULFILLED, workflowStatusChangedAt: new Date() }
+    : {};
 
   const shopifyOwnedFields = {
     orderNumber: rawOrder.name,
@@ -147,11 +174,12 @@ export async function importShopifyOrder(
     async (tx) => {
       const order = await tx.shopifyOrder.upsert({
         where: { shopId_shopifyOrderGid: { shopId, shopifyOrderGid } },
-        create: { shopId, shopifyOrderGid, ...shopifyOwnedFields },
+        create: { shopId, shopifyOrderGid, ...shopifyOwnedFields, ...fulfillmentSyncFields },
         // Hub-owned fields (workflowStatus, proofSummary, priority, and
         // everything else not listed here) are never part of this `update`,
-        // so a Shopify sync can never overwrite them.
-        update: shopifyOwnedFields,
+        // so a Shopify sync can never overwrite them — fulfillmentSyncFields
+        // is the sole, narrowly-scoped exception (see its definition above).
+        update: { ...shopifyOwnedFields, ...fulfillmentSyncFields },
       });
 
       for (const rawLine of rawOrder.lineItems) {
@@ -286,10 +314,27 @@ export async function importShopifyOrder(
       // If nothing changed at all, only lastSyncedAt was touched above —
       // no activity event, so routine re-syncs don't create noise.
 
+      if (wasFulfilledJustNow) {
+        // Not an `else if` above — a brand-new order that arrives already
+        // fulfilled should get both ORDER_IMPORTED and this event.
+        await tx.activityEvent.create({
+          data: {
+            shopId,
+            orderId: order.id,
+            entityType: "ShopifyOrder",
+            entityId: order.id,
+            eventType: "ORDER_FULFILLED_IN_SHOPIFY",
+            summary: `Order ${order.orderNumber} was fulfilled directly in Shopify and moved to Fulfilled automatically`,
+            metadata: { source: "shopify_fulfillment_sync", previousWorkflowStatus: currentWorkflowStatus },
+            actorType: ActorType.SYSTEM,
+          },
+        });
+      }
+
       return order.id;
     },
     { timeout: 15_000 },
   );
 
-  return { orderId, wasNewOrder, wasCancelledJustNow, changeDescriptions };
+  return { orderId, wasNewOrder, wasCancelledJustNow, wasFulfilledJustNow, changeDescriptions };
 }
