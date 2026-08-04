@@ -200,11 +200,16 @@ export async function createExportBatch(
     }
 
     try {
+      // Add-only, deliberately — the shop wants prior lifecycle tags left
+      // on the order in Shopify; this column's match priority already
+      // outranks proof_sent/rejected/accepted, so leaving them doesn't
+      // affect board placement. See board-columns.ts's identical note on
+      // the manual-drag path for the same tag.
       await syncOrderLifecycleTag({
         shopId: input.shopId,
         orderId: input.orderId,
         addTag: "Exported for Print",
-        removeTags: ["proof_sent", "proof_rejected", "proof_accepted"],
+        removeTags: [],
       });
     } catch {
       // Defensive backstop only — see send-proof-request.server.ts's

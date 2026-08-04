@@ -182,12 +182,12 @@ describe("getBoardColumn", () => {
     expect(getBoardColumn("pack").interactive).toBe(true);
   });
 
-  it("gives Exported for Print a shopifyTag drop action, not a workflowStatus one", () => {
+  it("gives Exported for Print a shopifyTag drop action, add-only (no removeTags)", () => {
     const column = getBoardColumn("exported_for_print");
     expect(column.dropAction).toEqual({
       type: "shopifyTag",
       addTag: "Exported for Print",
-      removeTags: ["proof_sent", "proof_rejected", "proof_accepted"],
+      removeTags: [],
     });
   });
 

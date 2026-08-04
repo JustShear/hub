@@ -108,12 +108,15 @@ const RULES: RawColumnRule[] = [
     // Shopify — or automatically, via createExportBatch — always lands
     // here regardless of source), but a manual drop now also syncs that
     // same tag to Shopify, rather than being read-only like the other
-    // tag-driven columns.
+    // tag-driven columns. Deliberately add-only (no removeTags) — the
+    // shop wants prior lifecycle tags left on the order in Shopify; this
+    // column's own match priority already outranks proof_sent/rejected/
+    // accepted, so leaving them in place never affects board placement.
     interactive: true,
     dropAction: {
       type: "shopifyTag",
       addTag: "Exported for Print",
-      removeTags: ["proof_sent", "proof_rejected", "proof_accepted"],
+      removeTags: [],
     },
     matchPriority: 2,
     ownMatches: (order) => order.tags.includes("Exported for Print"),
