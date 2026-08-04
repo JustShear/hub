@@ -56,24 +56,30 @@ export function PackCardFreightControls({
     );
   }
 
+  // Freight-label eligibility (production complete, not cancelled) gates
+  // the label form only — it's specifically about whether it's safe to
+  // create a real shipment. Marking fulfilled without a label has its own,
+  // looser requirement (see mark-order-fulfilled-manually.server.ts: just
+  // READY_TO_PACK/PACKING) since plenty of real orders never get
+  // productionSummary tracked through this Hub at all (e.g. anything
+  // imported with pre-existing Shopify tags) — that shouldn't block staff
+  // from marking a genuinely-packed order fulfilled.
   const eligibility = evaluateFreightShipmentEligibility({
     productionSummary,
     hasActiveShipment: false,
     orderCancelledAt: isCancelled ? new Date() : null,
   });
 
-  if (!eligibility.eligible) {
-    return (
-      <p className="text-xs text-muted">
-        {eligibility.reason ?? "This order isn't eligible for a freight shipment yet."}
-      </p>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-2">
-      <CreatePackFreightForm orderId={orderId} />
-      <MarkFulfilledButton orderId={orderId} />
+      {eligibility.eligible ? (
+        <CreatePackFreightForm orderId={orderId} />
+      ) : (
+        <p className="text-xs text-muted">
+          {eligibility.reason ?? "This order isn't eligible for a freight shipment yet."}
+        </p>
+      )}
+      {!isCancelled ? <MarkFulfilledButton orderId={orderId} /> : null}
     </div>
   );
 }
