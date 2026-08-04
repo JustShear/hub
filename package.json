@@ -30,7 +30,8 @@
     "import:order": "tsx scripts/import-order.ts",
     "import:open-orders": "tsx scripts/import-open-orders.ts",
     "register:webhooks": "tsx scripts/register-webhooks.ts",
-    "backfill:lifecycle-tags": "tsx scripts/backfill-lifecycle-tags.ts"
+    "backfill:lifecycle-tags": "tsx scripts/backfill-lifecycle-tags.ts",
+    "backfill:pack-fulfillment-sync": "tsx scripts/backfill-pack-fulfillment-sync.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
