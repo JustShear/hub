@@ -155,10 +155,18 @@ const RULES: RawColumnRule[] = [
   {
     key: "waiting_on_customer",
     label: "Waiting on Customer",
-    purpose: 'Staff are waiting on the customer (tagged "emailed" in Shopify).',
-    interactive: false,
-    readOnlyReason:
-      'Set from the "emailed" Shopify tag, applied by staff outside the Hub — not draggable here.',
+    purpose: 'Staff have contacted the customer and are waiting on a reply (tagged "emailed" in Shopify).',
+    // Interactive as well as tag-driven, same precedent as Exported for
+    // Print: still matches purely off the real Shopify "emailed" tag (so an
+    // order tagged directly in Shopify still lands here), but a manual drop
+    // now also syncs that tag, for staff who've just contacted the customer
+    // outside of Shopify (a phone call, in person) and want the board to
+    // reflect that immediately rather than waiting on a separate Shopify
+    // tagging step. Add-only (no removeTags) — this column's match priority
+    // already outranks order_sheet_printed/proof_being_prepared/new, so
+    // leftover lower-priority tags never affect placement.
+    interactive: true,
+    dropAction: { type: "shopifyTag", addTag: "emailed", removeTags: [] },
     matchPriority: 6,
     ownMatches: (order) => order.tags.includes("emailed"),
     ownWhere: { tags: { has: "emailed" } },

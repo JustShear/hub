@@ -26,6 +26,11 @@ describe("MoveToMenu", () => {
     const exportedForPrint = screen.getByRole("menuitem", { name: "Exported for Print" });
     expect(exportedForPrint).not.toHaveAttribute("data-disabled");
 
+    // Waiting on Customer is interactive too (a drop there syncs the real
+    // "emailed" Shopify tag) — no longer a disabled destination.
+    const waitingOnCustomer = screen.getByRole("menuitem", { name: "Waiting on Customer" });
+    expect(waitingOnCustomer).not.toHaveAttribute("data-disabled");
+
     const changesRequested = screen.getByRole("menuitem", { name: "Changes Requested" });
     expect(changesRequested).toHaveAttribute("data-disabled");
   });

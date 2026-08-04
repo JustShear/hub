@@ -19,12 +19,14 @@ describe("canMoveOrderToColumn", () => {
     expect(canMoveOrderToColumn(OrderStatus.NEW, "exported_for_print")).toMatchObject({
       allowed: true,
     });
+    expect(canMoveOrderToColumn(OrderStatus.NEW, "waiting_on_customer")).toMatchObject({
+      allowed: true,
+    });
   });
 
-  it("rejects moving to any of the five purely-tag-driven columns — not manually draggable", () => {
+  it("rejects moving to any of the four purely-tag-driven columns — not manually draggable", () => {
     for (const target of [
       "order_sheet_printed",
-      "waiting_on_customer",
       "proof_sent",
       "changes_requested",
       "proof_approved",

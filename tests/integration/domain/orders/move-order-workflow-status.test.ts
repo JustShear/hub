@@ -162,6 +162,40 @@ describe("moveOrderWorkflowStatus (integration)", () => {
     expect(failure).not.toBeNull();
   }, 20000);
 
+  // Waiting on Customer is now interactive too, same shopifyTag-driven shape
+  // as Exported for Print — staff who've just contacted a customer outside
+  // Shopify can drag the card, which syncs the real "emailed" tag. Same
+  // honest-failure convention: this order's shopifyOrderGid is fake, so the
+  // real Shopify call fails, but that's recorded rather than silently
+  // swallowed, and workflowStatus is never claimed to have changed.
+  it("allows moving to waiting_on_customer (shopifyTag-driven) and records a real Shopify sync attempt", async () => {
+    const order = await createOrder(OrderStatus.NEW);
+    const staffUser = await createStaffUser();
+
+    const result = await moveOrderWorkflowStatus({
+      shopId: order.shopId,
+      orderId: order.id,
+      targetColumnKey: "waiting_on_customer",
+      expectedWorkflowStatus: OrderStatus.NEW,
+      staffUserId: staffUser.id,
+    });
+
+    expect(result.outcome === "moved" || result.outcome === "rejected").toBe(true);
+
+    const updated = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(updated.workflowStatus).toBe(OrderStatus.NEW);
+
+    const failure = await db.integrationFailure.findFirst({
+      where: {
+        shopId: order.shopId,
+        integration: "SHOPIFY_TAG_UPDATE",
+        action: "order_tag_sync",
+        relatedOrderId: order.id,
+      },
+    });
+    expect(failure).not.toBeNull();
+  }, 20000);
+
   it("rejects moving a cancelled order", async () => {
     const order = await createOrder(OrderStatus.CANCELLED);
     const staffUser = await createStaffUser();

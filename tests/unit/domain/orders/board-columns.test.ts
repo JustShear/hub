@@ -161,10 +161,9 @@ describe("getBoardColumn", () => {
     expect(() => getBoardColumn("not_a_real_column")).toThrow();
   });
 
-  it("marks the five purely-tag-driven columns as non-interactive", () => {
+  it("marks the four purely-tag-driven columns as non-interactive", () => {
     for (const key of [
       "order_sheet_printed",
-      "waiting_on_customer",
       "proof_sent",
       "changes_requested",
       "proof_approved",
@@ -174,9 +173,10 @@ describe("getBoardColumn", () => {
     }
   });
 
-  it("marks New, Pre-Order, Proof Being Prepared, Exported for Print, and Pack as interactive", () => {
+  it("marks New, Pre-Order, Waiting on Customer, Proof Being Prepared, Exported for Print, and Pack as interactive", () => {
     expect(getBoardColumn("new").interactive).toBe(true);
     expect(getBoardColumn("pre_order").interactive).toBe(true);
+    expect(getBoardColumn("waiting_on_customer").interactive).toBe(true);
     expect(getBoardColumn("proof_being_prepared").interactive).toBe(true);
     expect(getBoardColumn("exported_for_print").interactive).toBe(true);
     expect(getBoardColumn("pack").interactive).toBe(true);
@@ -191,6 +191,15 @@ describe("getBoardColumn", () => {
     });
   });
 
+  it("gives Waiting on Customer a shopifyTag drop action, add-only (no removeTags)", () => {
+    const column = getBoardColumn("waiting_on_customer");
+    expect(column.dropAction).toEqual({
+      type: "shopifyTag",
+      addTag: "emailed",
+      removeTags: [],
+    });
+  });
+
   it("gives Pre-Order a workflowStatus drop action", () => {
     const column = getBoardColumn("pre_order");
     expect(column.dropAction).toEqual({ type: "workflowStatus", status: OrderStatus.PRE_ORDER });
@@ -198,9 +207,16 @@ describe("getBoardColumn", () => {
 });
 
 describe("getInteractiveColumnKeys", () => {
-  it("returns exactly the five draggable columns", () => {
+  it("returns exactly the six draggable columns", () => {
     expect(getInteractiveColumnKeys().sort()).toEqual(
-      ["new", "pre_order", "proof_being_prepared", "exported_for_print", "pack"].sort(),
+      [
+        "new",
+        "pre_order",
+        "waiting_on_customer",
+        "proof_being_prepared",
+        "exported_for_print",
+        "pack",
+      ].sort(),
     );
   });
 });
