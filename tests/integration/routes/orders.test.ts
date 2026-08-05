@@ -239,6 +239,56 @@ describe("orders board route (integration)", () => {
     expect(await db.activityEvent.count({ where: { orderId: order.id } })).toBe(1);
   });
 
+  it("performs a valid toggleNeedsPrinting action for a staff user with board.manage", async () => {
+    const staffUser = await createStaffUserWithRole("MANAGER");
+    const cookie = await sessionCookieFor(staffUser.id);
+    const order = await createOrder();
+
+    const formData = new FormData();
+    formData.set("_intent", "toggleNeedsPrinting");
+    formData.set("orderId", order.id);
+    formData.set("needsPrinting", "true");
+
+    const result = await action({
+      request: new Request("http://localhost/orders", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result).toMatchObject({ ok: true, needsPrinting: true });
+    const updated = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(updated.needsPrinting).toBe(true);
+  });
+
+  it("rejects a toggleNeedsPrinting action from a staff user without board.manage", async () => {
+    const staffUser = await createStaffUserWithRole("PACKING_STAFF");
+    const cookie = await sessionCookieFor(staffUser.id);
+    const order = await createOrder();
+
+    const formData = new FormData();
+    formData.set("_intent", "toggleNeedsPrinting");
+    formData.set("orderId", order.id);
+    formData.set("needsPrinting", "true");
+
+    const result = await action({
+      request: new Request("http://localhost/orders", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result).toMatchObject({ ok: false });
+    const unchanged = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(unchanged.needsPrinting).toBe(false);
+  });
+
   it("filters the board by priority via search params", async () => {
     const staffUser = await createStaffUserWithRole("MANAGER");
     const cookie = await sessionCookieFor(staffUser.id);

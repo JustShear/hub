@@ -19,7 +19,7 @@ import {
   ShieldAlert,
   Truck,
 } from "lucide-react";
-import { Link, useLocation } from "react-router";
+import { Link, useFetcher, useLocation } from "react-router";
 import type { BoardCard } from "~/domain/orders/board-query.server";
 import type { BoardColumnKey } from "~/domain/orders/board-columns";
 import { PROOF_SUMMARY_LABELS } from "~/domain/orders/labels";
@@ -93,7 +93,7 @@ export function OrderCard({
       ref={draggable.setNodeRef}
       style={style}
       className={`flex flex-col gap-2 rounded-lg border border-border p-3 text-sm shadow-sm ${
-        card.hasCustomerUpload ? "bg-accent-pink" : "bg-surface"
+        card.hasCustomerUpload || card.needsPrinting ? "bg-accent-pink" : "bg-surface"
       } ${draggable.isDragging ? "opacity-50" : ""} ${isPending ? "opacity-70" : ""}`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -105,6 +105,12 @@ export function OrderCard({
         </Link>
         <PriorityBadge priority={card.priority} />
       </div>
+
+      <NeedsPrintingToggle
+        orderId={card.id}
+        needsPrinting={card.needsPrinting}
+        disabled={!canManage || isPending}
+      />
 
       <p className="text-ink">{card.customerName ?? "No customer name"}</p>
 
@@ -286,5 +292,54 @@ export function OrderCard({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// A manual, Hub-only note — "this order still needs a print add-on applied."
+// Never synced to Shopify (see update-needs-printing.server.ts). Tints the
+// card the same light pink used for a customer file upload; the shop asked
+// to keep the two visually the same rather than distinguish them.
+function NeedsPrintingToggle({
+  orderId,
+  needsPrinting,
+  disabled,
+}: {
+  orderId: string;
+  needsPrinting: boolean;
+  disabled: boolean;
+}) {
+  const fetcher = useFetcher();
+  // Optimistic: reflect the in-flight value immediately rather than waiting
+  // for the board to revalidate.
+  const checked = fetcher.formData
+    ? fetcher.formData.get("needsPrinting") === "true"
+    : needsPrinting;
+
+  return (
+    <label
+      className="flex items-center gap-1.5 text-xs font-medium text-ink"
+      onClick={(e) => {
+        // Stop the click reaching the draggable card wrapper.
+        e.stopPropagation();
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled || fetcher.state !== "idle"}
+        onChange={(e) => {
+          void fetcher.submit(
+            {
+              _intent: "toggleNeedsPrinting",
+              orderId,
+              needsPrinting: e.target.checked ? "true" : "false",
+            },
+            { method: "post" },
+          );
+        }}
+        className="h-3.5 w-3.5 shrink-0"
+      />
+      Needs printing
+    </label>
   );
 }

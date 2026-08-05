@@ -22,6 +22,7 @@ function makeCard(overrides: Partial<BoardCard>): BoardCard {
     priority: Priority.NORMAL,
     tags: [],
     isPreorder: false,
+    needsPrinting: false,
     isWaitingOnCustomer: false,
     hasCustomerResponseAlert: false,
     isApprovedNotExported: false,

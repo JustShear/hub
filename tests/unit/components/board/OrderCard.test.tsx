@@ -26,6 +26,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     priority: Priority.NORMAL,
     tags: [],
     isPreorder: false,
+    needsPrinting: false,
     isWaitingOnCustomer: false,
     hasCustomerResponseAlert: false,
     isApprovedNotExported: false,
@@ -262,6 +263,23 @@ describe("OrderCard", () => {
     expect(screen.getByRole("link", { name: "#1003" }).closest("div.rounded-lg")).toHaveClass(
       "bg-surface",
     );
+  });
+
+  it("also tints the card light pink when manually marked as needing printing", () => {
+    renderCard(makeCard({ orderNumber: "#1004", needsPrinting: true }), true);
+    expect(screen.getByRole("link", { name: "#1004" }).closest("div.rounded-lg")).toHaveClass(
+      "bg-accent-pink",
+    );
+  });
+
+  it("shows a Needs printing checkbox reflecting the card's current value", () => {
+    renderCard(makeCard({ needsPrinting: true }), true);
+    expect(screen.getByRole("checkbox", { name: /needs printing/i })).toBeChecked();
+  });
+
+  it("disables the Needs printing checkbox for a read-only (view-only) staff member", () => {
+    renderCard(makeCard({ needsPrinting: false }), false);
+    expect(screen.getByRole("checkbox", { name: /needs printing/i })).toBeDisabled();
   });
 
   it("shows the existing shipment's status instead of the create form when one already exists", () => {

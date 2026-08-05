@@ -230,6 +230,12 @@ model ShopifyOrder {
   // OrderWarehousePickSummary.
   warehousePickSummary    OrderWarehousePickSummary @default(NOT_STARTED)
   priority                Priority                  @default(NORMAL)
+  // Manual staff flag — "this order still needs a print add-on applied
+  // before it can proceed." Purely a Hub-side note, never synced to a
+  // Shopify tag. Tints the Kanban card the same light pink used for a
+  // customer file upload — the shop asked to keep it simple rather than
+  // distinguish the two reasons visually.
+  needsPrinting           Boolean                   @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

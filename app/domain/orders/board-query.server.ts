@@ -70,6 +70,7 @@ const BOARD_CARD_SELECT = {
   priority: true,
   tags: true,
   isPreorder: true,
+  needsPrinting: true,
   cancelledAt: true,
   lines: {
     take: 6,
@@ -159,6 +160,8 @@ export interface BoardCard {
   priority: Priority;
   tags: string[];
   isPreorder: boolean;
+  /** Manual staff flag — "this order still needs a print add-on applied." Hub-only, never synced to Shopify. */
+  needsPrinting: boolean;
   isWaitingOnCustomer: boolean;
   hasCustomerResponseAlert: boolean;
   /** True for workflowStatus PARTIALLY_APPROVED/READY_FOR_EXPORT — approved but not yet exported. */
@@ -311,6 +314,7 @@ function toBoardCard(
     priority: row.priority,
     tags: row.tags,
     isPreorder: row.isPreorder,
+    needsPrinting: row.needsPrinting,
     isWaitingOnCustomer:
       row.workflowStatus === OrderStatus.WAITING_CUSTOMER ||
       row.proofSummary === OrderProofSummary.WAITING_ON_CUSTOMER,

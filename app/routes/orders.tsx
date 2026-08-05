@@ -14,6 +14,7 @@ import {
   getBoardFilterOptions,
 } from "~/domain/orders/board-query.server";
 import { moveOrderWorkflowStatus } from "~/domain/orders/move-order-workflow-status.server";
+import { updateOrderNeedsPrinting } from "~/domain/orders/update-needs-printing.server";
 import {
   listSavedViews,
   createSavedView,
@@ -121,6 +122,37 @@ export async function action({ request }: Route.ActionArgs) {
       return { intent: "move" as const, ok: false, error: result.reason };
     }
     return { intent: "move" as const, ok: true, workflowStatus: result.workflowStatus };
+  }
+
+  if (intent === "toggleNeedsPrinting") {
+    if (!hasPermission(staffUser, "board.manage")) {
+      return {
+        intent: "toggleNeedsPrinting" as const,
+        ok: false,
+        error: "You don't have permission to update this order.",
+      };
+    }
+    const orderId = formString(formData, "orderId");
+    const needsPrinting = formString(formData, "needsPrinting") === "true";
+    if (!orderId) {
+      return { intent: "toggleNeedsPrinting" as const, ok: false, error: "Missing orderId." };
+    }
+
+    const result = await updateOrderNeedsPrinting({
+      shopId: staffUser.shopId,
+      orderId,
+      needsPrinting,
+      staffUserId: staffUser.id,
+    });
+
+    if (result.outcome === "rejected") {
+      return { intent: "toggleNeedsPrinting" as const, ok: false, error: result.reason };
+    }
+    return {
+      intent: "toggleNeedsPrinting" as const,
+      ok: true,
+      needsPrinting: result.needsPrinting,
+    };
   }
 
   if (intent === "createView" || intent === "updateView") {
