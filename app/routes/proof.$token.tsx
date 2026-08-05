@@ -39,8 +39,17 @@ export function headers() {
     "Referrer-Policy": "no-referrer",
     // No third-party scripts of any kind on a tokenised customer page —
     // only same-origin styles/scripts/images are ever allowed to load.
+    // script-src needs 'unsafe-inline' alongside 'self': React Router's own
+    // hydration bootstrap is an inline <script> in the page HTML, and without
+    // this the browser silently blocks it — the page renders but never
+    // hydrates, so every button on it (Approve/Request Changes, the
+    // checkbox, everything) is completely inert with no console error. This
+    // is still same-origin, framework-generated code, not attacker input —
+    // the 'self' restriction on script *sources* is what keeps third-party
+    // scripts out, which is the actual security property this header exists
+    // for.
     "Content-Security-Policy":
-      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'",
+      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
   });
 }
 
