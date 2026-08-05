@@ -141,10 +141,29 @@ describe("getBoardColumnKey", () => {
       );
     });
 
-    it('a "p" tag outranks PRE_ORDER workflow status — real progress graduates the order out of Pre-Order', () => {
+    it('PRE_ORDER outranks a "p" tag — parking an order in Pre-Order always shows there, regardless of routine tags already on it', () => {
+      // Regression test: real preorder-tagged orders almost always already
+      // carry "p" from routine early processing, so a lower priority here
+      // meant dragging a card into Pre-Order never visibly moved it.
       expect(
         getBoardColumnKey(order({ workflowStatus: OrderStatus.PRE_ORDER, tags: ["p"] })),
-      ).toBe("order_sheet_printed");
+      ).toBe("pre_order");
+    });
+
+    it('PRE_ORDER outranks "emailed" and "proof_sent" tags too', () => {
+      expect(
+        getBoardColumnKey(
+          order({ workflowStatus: OrderStatus.PRE_ORDER, tags: ["p", "emailed", "proof_sent"] }),
+        ),
+      ).toBe("pre_order");
+    });
+
+    it("Exported for Print still outranks PRE_ORDER — real export progress isn't masked by a stale workflowStatus", () => {
+      expect(
+        getBoardColumnKey(
+          order({ workflowStatus: OrderStatus.PRE_ORDER, tags: ["Exported for Print"] }),
+        ),
+      ).toBe("exported_for_print");
     });
 
     it("PRE_ORDER outranks the New catch-all", () => {

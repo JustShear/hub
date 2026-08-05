@@ -123,12 +123,33 @@ const RULES: RawColumnRule[] = [
     ownWhere: { tags: { has: "Exported for Print" } },
   },
   {
+    key: "pre_order",
+    label: "Pre-Order",
+    purpose: "Known/paid orders held back until their production window opens.",
+    interactive: true,
+    dropAction: { type: "workflowStatus", status: OrderStatus.PRE_ORDER },
+    // Sits right after the two real-production-milestone columns (Pack,
+    // Exported for Print) and outranks every passive/read-only tag column
+    // below. This was originally placed just above New on the assumption a
+    // preorder would still be untouched by other tags — false in practice:
+    // real preorder-tagged orders almost always already carry "p" (Order
+    // Sheet Printed) from routine early processing, so with the old lower
+    // priority, dragging a card here never visibly moved it — it kept
+    // showing under Order Sheet Printed since that rule outranked this one.
+    // Parking an order in Pre-Order is a deliberate staff action and should
+    // reliably show as moved regardless of which passive tags happen to be
+    // present.
+    matchPriority: 3,
+    ownMatches: (order) => order.workflowStatus === OrderStatus.PRE_ORDER,
+    ownWhere: { workflowStatus: OrderStatus.PRE_ORDER },
+  },
+  {
     key: "proof_approved",
     label: "Proof Approved",
     purpose: "Customer approved the proof.",
     interactive: false,
     readOnlyReason: "Set automatically when a customer response is recorded — not manually draggable.",
-    matchPriority: 3,
+    matchPriority: 4,
     ownMatches: (order) => order.tags.includes("proof_accepted"),
     ownWhere: { tags: { has: "proof_accepted" } },
   },
@@ -138,7 +159,7 @@ const RULES: RawColumnRule[] = [
     purpose: "Customer has requested a revision.",
     interactive: false,
     readOnlyReason: "Set automatically when a customer response is recorded — not manually draggable.",
-    matchPriority: 4,
+    matchPriority: 5,
     ownMatches: (order) => order.tags.includes("proof_rejected"),
     ownWhere: { tags: { has: "proof_rejected" } },
   },
@@ -148,7 +169,7 @@ const RULES: RawColumnRule[] = [
     purpose: "Customer response is pending.",
     interactive: false,
     readOnlyReason: "Set automatically when Just Shear sends a proof request — not manually draggable.",
-    matchPriority: 5,
+    matchPriority: 6,
     ownMatches: (order) => order.tags.includes("proof_sent"),
     ownWhere: { tags: { has: "proof_sent" } },
   },
@@ -167,7 +188,7 @@ const RULES: RawColumnRule[] = [
     // leftover lower-priority tags never affect placement.
     interactive: true,
     dropAction: { type: "shopifyTag", addTag: "emailed", removeTags: [] },
-    matchPriority: 6,
+    matchPriority: 7,
     ownMatches: (order) => order.tags.includes("emailed"),
     ownWhere: { tags: { has: "emailed" } },
   },
@@ -178,7 +199,7 @@ const RULES: RawColumnRule[] = [
     interactive: false,
     readOnlyReason:
       'Set from the "p" Shopify tag, applied by staff in Shopify — not draggable here.',
-    matchPriority: 7,
+    matchPriority: 8,
     ownMatches: (order) => order.tags.includes("p"),
     ownWhere: { tags: { has: "p" } },
   },
@@ -188,25 +209,10 @@ const RULES: RawColumnRule[] = [
     purpose: "Artwork work has started.",
     interactive: true,
     dropAction: { type: "workflowStatus", status: OrderStatus.PROOFING_IN_PROGRESS },
-    matchPriority: 8,
+    matchPriority: 9,
     ownMatches: (order) =>
       (PROOF_BEING_PREPARED_STATUSES as readonly OrderStatus[]).includes(order.workflowStatus),
     ownWhere: { workflowStatus: { in: [...PROOF_BEING_PREPARED_STATUSES] } },
-  },
-  {
-    key: "pre_order",
-    label: "Pre-Order",
-    purpose: "Known/paid orders held back until their production window opens.",
-    interactive: true,
-    dropAction: { type: "workflowStatus", status: OrderStatus.PRE_ORDER },
-    // Priority sits just above New: any real progress (a tag, or dragging
-    // into Proof Being Prepared/Pack) naturally graduates an order out of
-    // Pre-Order without staff needing to drag it out first, since those
-    // rules all outrank this one and the order's workflowStatus changes
-    // the moment it's dragged anywhere else.
-    matchPriority: 9,
-    ownMatches: (order) => order.workflowStatus === OrderStatus.PRE_ORDER,
-    ownWhere: { workflowStatus: OrderStatus.PRE_ORDER },
   },
   {
     key: "new",
