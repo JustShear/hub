@@ -12,9 +12,13 @@ interface OrderImportJobPayload {
   shopifyOrderGid?: string;
 }
 
+// Exported so reconcile-fulfillment-status.server.ts (the background
+// fulfillment-sync sweep) can classify/report failures the exact same way,
+// rather than inventing a second opinion on what counts as retryable.
+
 // Never let a raw secret value end up in a stored failure record, even
 // though none of our error paths currently embed one.
-function sanitizeTechnicalDetail(message: string): string {
+export function sanitizeTechnicalDetail(message: string): string {
   return message
     .split(env.SHOPIFY_ADMIN_API_TOKEN)
     .join("[redacted]")
@@ -22,7 +26,7 @@ function sanitizeTechnicalDetail(message: string): string {
     .join("[redacted]");
 }
 
-function classifyFailure(error: unknown): {
+export function classifyFailure(error: unknown): {
   severity: Severity;
   retryable: boolean;
   summary: string;

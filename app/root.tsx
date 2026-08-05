@@ -11,6 +11,7 @@ import type { Route } from "./+types/root";
 import "./app.css";
 import { env } from "./lib/env.server";
 import { startJobPoller } from "./lib/job-poller.server";
+import { startFulfillmentPoller } from "./lib/fulfillment-poller.server";
 
 // Typography and design tokens (SRS Section 19.1) are wired up in Milestone 06.
 export const links: Route.LinksFunction = () => [
@@ -20,11 +21,13 @@ export const links: Route.LinksFunction = () => [
 // Loaders run server-only. Touching `env` here forces the fail-closed
 // validation in app/lib/env.server.ts to run on first request rather than
 // silently deferring until some later code path happens to need a variable.
-// startJobPoller() is idempotent — only the first call actually starts the
-// interval — so calling it from a per-request loader is safe.
+// startJobPoller()/startFulfillmentPoller() are idempotent — only the first
+// call actually starts each interval — so calling them from a per-request
+// loader is safe.
 export function loader() {
   void env;
   startJobPoller();
+  startFulfillmentPoller();
   return null;
 }
 
