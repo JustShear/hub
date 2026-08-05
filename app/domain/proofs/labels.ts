@@ -85,3 +85,9 @@ export type ActiveProofVersionStatus = "DRAFT" | "READY_TO_SEND" | "SUPERSEDED" 
 export const PROOF_APPROVAL_ACKNOWLEDGEMENT_VERSION = "v1";
 export const PROOF_APPROVAL_ACKNOWLEDGEMENT_TEXT =
   "I have reviewed this proof and approve it for production.";
+// Shared between the client (pre-submit validation) and the server (the
+// authoritative rejection reason) so the two can never say something
+// different — see record-customer-proof-response.server.ts and
+// proof.$token.tsx's ApproveForm.
+export const PROOF_APPROVAL_MISSING_ACKNOWLEDGEMENT_MESSAGE =
+  "Please confirm you've reviewed the proof before approving it.";

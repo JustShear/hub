@@ -10,7 +10,10 @@ import {
 } from "~/domain/proofs/file-validation";
 import { resolveProofRequestByToken } from "~/auth/proof-token.server";
 import { recalculateOrderProofSummary } from "~/domain/proofs/order-proof-summary.server";
-import { PROOF_APPROVAL_ACKNOWLEDGEMENT_VERSION } from "~/domain/proofs/labels";
+import {
+  PROOF_APPROVAL_ACKNOWLEDGEMENT_VERSION,
+  PROOF_APPROVAL_MISSING_ACKNOWLEDGEMENT_MESSAGE,
+} from "~/domain/proofs/labels";
 import { syncOrderLifecycleTag } from "~/domain/orders/sync-order-lifecycle-tag.server";
 
 export interface CustomerProofResponseFileInput {
@@ -100,7 +103,7 @@ export async function recordCustomerProofResponse(
   if (input.responseType === "APPROVED" && !input.acknowledgedApproval) {
     return {
       outcome: "rejected",
-      reason: "Please confirm you've reviewed the proof before approving it.",
+      reason: PROOF_APPROVAL_MISSING_ACKNOWLEDGEMENT_MESSAGE,
     };
   }
   if (

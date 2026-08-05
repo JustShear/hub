@@ -9,6 +9,7 @@ import {
 import {
   DECORATION_METHOD_LABELS,
   PROOF_APPROVAL_ACKNOWLEDGEMENT_TEXT,
+  PROOF_APPROVAL_MISSING_ACKNOWLEDGEMENT_MESSAGE,
 } from "~/domain/proofs/labels";
 
 type LoaderData =
@@ -296,7 +297,7 @@ function ProofPreview({
   );
 }
 
-function ApproveForm({
+export function ApproveForm({
   group,
   token,
   onCancel,
@@ -307,6 +308,11 @@ function ApproveForm({
 }) {
   const fetcher = useFetcher<{ ok: boolean; error?: string }>();
   const [acknowledged, setAcknowledged] = useState(false);
+  // Only shown after a submit attempt without the checkbox ticked — the
+  // button itself is never disabled for this reason (a disabled button with
+  // no explanation reads as "broken" to a customer who hasn't noticed the
+  // checkbox above it, which is exactly what was reported).
+  const [showAcknowledgementError, setShowAcknowledgementError] = useState(false);
   // Generated once — this form is replaced by a success message the moment
   // a submission succeeds, so it never needs to be resubmitted with a fresh key.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
@@ -316,7 +322,17 @@ function ApproveForm({
   }
 
   return (
-    <fetcher.Form method="post" action={`/proof/${token}/respond`} className="flex flex-col gap-3">
+    <fetcher.Form
+      method="post"
+      action={`/proof/${token}/respond`}
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        if (!acknowledged) {
+          e.preventDefault();
+          setShowAcknowledgementError(true);
+        }
+      }}
+    >
       <input type="hidden" name="_intent" value="approve" />
       <input type="hidden" name="proofGroupId" value={group.proofGroupId} />
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
@@ -327,11 +343,17 @@ function ApproveForm({
           checked={acknowledged}
           onChange={(e) => {
             setAcknowledged(e.target.checked);
+            if (e.target.checked) setShowAcknowledgementError(false);
           }}
           className="mt-0.5 h-5 w-5 shrink-0"
         />
         <span>{PROOF_APPROVAL_ACKNOWLEDGEMENT_TEXT}</span>
       </label>
+      {showAcknowledgementError ? (
+        <p role="alert" className="text-sm text-error">
+          {PROOF_APPROVAL_MISSING_ACKNOWLEDGEMENT_MESSAGE}
+        </p>
+      ) : null}
       {fetcher.data?.error ? (
         <p role="alert" className="text-sm text-error">
           {fetcher.data.error}
@@ -340,7 +362,7 @@ function ApproveForm({
       <div className="flex gap-3">
         <button
           type="submit"
-          disabled={!acknowledged || fetcher.state !== "idle"}
+          disabled={fetcher.state !== "idle"}
           className="min-h-11 flex-1 rounded-md bg-brand-navy px-4 py-3 text-sm font-semibold text-white disabled:opacity-50 sm:flex-none"
         >
           {fetcher.state === "idle" ? "Confirm approval" : "Submitting…"}
