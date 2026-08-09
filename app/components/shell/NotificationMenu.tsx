@@ -21,8 +21,6 @@ function resolveNotificationLink(notification: Notification): string | null {
       return `/exceptions/${notification.relatedEntityId}`;
     case "WarehousePickJob":
       return `/warehouse/${notification.relatedEntityId}`;
-    case "ProductionJob":
-      return `/production/${notification.relatedEntityId}`;
     default:
       return null;
   }

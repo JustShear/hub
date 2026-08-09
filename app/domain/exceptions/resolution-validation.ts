@@ -14,10 +14,11 @@ export interface ResolutionValidationResult {
 
 /**
  * CREDIT/REFUND require a positive amount (record-only — no Shopify money
- * movement, see ADR-0010); REPRINT/EXCHANGE require a proof group to
- * re-export (the same field, since both mechanically reuse
- * createExportBatch/reExportBatch — the difference between them is only
- * *why*, not *how*); DENIED requires just the always-required reason.
+ * movement, see ADR-0010). REPRINT/EXCHANGE/DENIED just require the
+ * always-required reason — REPRINT/EXCHANGE used to also require a proof
+ * group to re-export via createExportBatch, but that mechanism was removed
+ * (see docs/decisions on removing Production Artwork); the proofGroupId
+ * field is accepted but no longer enforced or acted on.
  */
 export function validateResolutionInput(input: ResolutionInput): ResolutionValidationResult {
   if (!input.reason.trim()) {
@@ -26,14 +27,6 @@ export function validateResolutionInput(input: ResolutionInput): ResolutionValid
   if (input.resolutionType === "CREDIT" || input.resolutionType === "REFUND") {
     if (input.amount === null || input.amount <= 0) {
       return { valid: false, reason: "A positive amount is required for a credit or refund." };
-    }
-  }
-  if (input.resolutionType === "REPRINT" || input.resolutionType === "EXCHANGE") {
-    if (!input.proofGroupId) {
-      return {
-        valid: false,
-        reason: "Select which proof group is being reprinted or exchanged.",
-      };
     }
   }
   return { valid: true };

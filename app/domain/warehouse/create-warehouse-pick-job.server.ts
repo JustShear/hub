@@ -9,17 +9,16 @@ export interface CreateWarehousePickJobForOrderInput {
 }
 
 /**
- * The one place warehouse pick jobs are created — called by
- * recalculateOrderProductionSummary the moment productionSummary
- * transitions to COMPLETE, in the same transaction (pure DB writes, no
- * external I/O, so unlike Milestone 12's Starshipit call there's no reason
- * to keep this out of the transaction — doing so gives stronger
- * consistency, not weaker). Idempotent via a plain existence check against
- * WarehousePickJob's own @@unique([orderId]) constraint — safe because this
- * always runs inside the same transaction as the summary flip, so there's
- * no concurrent-race window to worry about. Creates one WarehousePickItem
- * per ShopifyOrderLine on the order, decorated or not — a blank garment
- * still has to be physically gathered.
+ * The one place warehouse pick jobs are created — called from two trigger
+ * points, both firing off the order gaining the real "Exported for Print"
+ * Shopify tag: a manual drag on the Kanban board
+ * (move-order-workflow-status.server.ts) and a regular Shopify sync
+ * (import-order.server.ts's wasExportedForPrintJustNow). Idempotent via a
+ * plain existence check against WarehousePickJob's own
+ * @@unique([orderId]) constraint, so it's safe to call from both triggers
+ * (or a retry of either) without risk of duplicates. Creates one
+ * WarehousePickItem per ShopifyOrderLine on the order, decorated or not —
+ * a blank garment still has to be physically gathered.
  */
 export async function createWarehousePickJobForOrder(
   tx: TxClient,

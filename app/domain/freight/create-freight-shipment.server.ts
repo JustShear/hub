@@ -68,7 +68,6 @@ export async function createFreightShipment(
     where: { orderId: input.orderId, status: { in: [...OPEN_SHIPMENT_STATUSES] } },
   });
   const eligibility = evaluateFreightShipmentEligibility({
-    productionSummary: order.productionSummary,
     hasActiveShipment: activeShipmentCount > 0,
     orderCancelledAt: order.cancelledAt,
   });

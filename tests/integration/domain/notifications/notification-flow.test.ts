@@ -14,13 +14,6 @@ import { createExceptionTestTracker } from "../exceptions/helpers";
 import { assignWarehousePickJob } from "~/domain/warehouse/assign-warehouse-pick-job.server";
 import { createWarehouseIssue } from "~/domain/warehouse/warehouse-issue.server";
 import { createWarehouseTestTracker } from "../warehouse/helpers";
-import { assignProductionJob } from "~/domain/production/assign-production-task.server";
-import { createProductionIssue } from "~/domain/production/production-issue.server";
-import { createProductionTestTracker, PDF_BYTES } from "../production/helpers";
-import { createProductionArtwork } from "~/domain/production/create-production-artwork.server";
-import { setProductionArtworkOrderLines } from "~/domain/production/allocate-production-artwork-order-lines.server";
-import { markProductionArtworkReady } from "~/domain/production/mark-production-artwork-ready.server";
-import { createExportBatch } from "~/domain/production/create-export-batch.server";
 
 describe("notification query + mark-read (integration)", () => {
   const tracker = createExceptionTestTracker();
@@ -141,7 +134,7 @@ describe("a blocking warehouse issue notifies the assigned staff member (integra
     const reporter = await tracker.createStaffUser();
     const assignee = await tracker.createStaffUser();
     const line = await tracker.createOrderLine(order.id, 3);
-    const job = await tracker.completeOrderProduction({
+    const job = await tracker.createPickJobForOrder({
       shopId: order.shopId,
       orderId: order.id,
       orderLineId: line.id,
@@ -182,88 +175,6 @@ describe("a blocking warehouse issue notifies the assigned staff member (integra
 
     const notification = await db.notification.findFirst({
       where: { staffUserId: assignee.id, relatedEntityType: "WarehousePickJob" },
-    });
-    expect(notification).not.toBeNull();
-    expect(notification?.relatedEntityId).toBe(job.id);
-  });
-});
-
-describe("a blocking production issue notifies the assigned staff member (integration)", () => {
-  const tracker = createProductionTestTracker();
-  afterAll(tracker.cleanup);
-
-  it("notifies the job's assigned staff member on a blocking issue", async () => {
-    const order = await tracker.createOrder();
-    const reporter = await tracker.createStaffUser();
-    const assignee = await tracker.createStaffUser();
-    const line = await tracker.createOrderLine(order.id, 5);
-    const proofGroupId = await tracker.createNoProofRequiredGroup({
-      orderId: order.id,
-      shopId: order.shopId,
-      staffUserId: reporter.id,
-      orderLineId: line.id,
-    });
-    const artwork = await createProductionArtwork({
-      shopId: order.shopId,
-      proofGroupId,
-      fileBuffer: PDF_BYTES,
-      originalFilename: "artwork.pdf",
-      decorationMethod: null,
-      placement: "Front",
-      productionMetadata: null,
-      staffUserId: reporter.id,
-      idempotencyKey: null,
-    });
-    if (artwork.outcome !== "created") throw new Error("setup failed: artwork");
-    const allocation = await setProductionArtworkOrderLines({
-      shopId: order.shopId,
-      productionArtworkId: artwork.productionArtworkId,
-      allocations: [{ orderLineId: line.id, quantity: 5 }],
-      staffUserId: reporter.id,
-    });
-    if (allocation.outcome !== "set") throw new Error("setup failed: allocation");
-    const ready = await markProductionArtworkReady({
-      shopId: order.shopId,
-      productionArtworkId: artwork.productionArtworkId,
-      staffUserId: reporter.id,
-    });
-    if (ready.outcome !== "ready") throw new Error("setup failed: ready");
-    const exportResult = await createExportBatch({
-      shopId: order.shopId,
-      orderId: order.id,
-      proofGroupIds: [proofGroupId],
-      destination: null,
-      staffUserId: reporter.id,
-      idempotencyKey: `notif-test-${proofGroupId}`,
-    });
-    if (exportResult.outcome !== "exported") throw new Error("setup failed: export");
-    const job = await db.productionJob.findFirstOrThrow({
-      where: { exportBatchId: exportResult.exportBatchId },
-    });
-
-    await assignProductionJob({
-      shopId: order.shopId,
-      productionJobId: job.id,
-      targetStaffUserId: assignee.id,
-      assignedTeam: null,
-      expectedVersion: job.version,
-      staffUserId: reporter.id,
-    });
-
-    await createProductionIssue({
-      shopId: order.shopId,
-      productionJobId: job.id,
-      productionTaskId: null,
-      issueType: "EQUIPMENT_ISSUE",
-      severity: "HIGH",
-      description: "Blocking equipment issue.",
-      isBlocking: true,
-      reworkQuantity: null,
-      staffUserId: reporter.id,
-    });
-
-    const notification = await db.notification.findFirst({
-      where: { staffUserId: assignee.id, relatedEntityType: "ProductionJob" },
     });
     expect(notification).not.toBeNull();
     expect(notification?.relatedEntityId).toBe(job.id);

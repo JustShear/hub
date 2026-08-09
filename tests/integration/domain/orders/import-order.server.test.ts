@@ -89,6 +89,16 @@ describe("importShopifyOrder (integration)", () => {
 
   afterAll(async () => {
     if (createdOrderIds.length === 0) return;
+    const pickJobIds = (
+      await db.warehousePickJob.findMany({
+        where: { orderId: { in: createdOrderIds } },
+        select: { id: true },
+      })
+    ).map((j) => j.id);
+    if (pickJobIds.length > 0) {
+      await db.warehousePickItem.deleteMany({ where: { warehousePickJobId: { in: pickJobIds } } });
+      await db.warehousePickJob.deleteMany({ where: { id: { in: pickJobIds } } });
+    }
     await db.activityEvent.deleteMany({ where: { orderId: { in: createdOrderIds } } });
     await db.orderNote.deleteMany({ where: { orderId: { in: createdOrderIds } } });
     await db.proofRequirement.deleteMany({ where: { orderId: { in: createdOrderIds } } });
@@ -558,5 +568,42 @@ describe("importShopifyOrder (integration)", () => {
 
     const events = await db.activityEvent.findMany({ where: { orderId: created.orderId } });
     expect(events.some((e) => e.summary.includes("Shopify tags changed"))).toBe(true);
+  });
+
+  it("creates a WarehousePickJob the moment a sync brings in the 'Exported for Print' tag fresh", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder({ tags: ["preorder"] });
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+    expect(created.wasExportedForPrintJustNow).toBe(false);
+    expect(await db.warehousePickJob.findUnique({ where: { orderId: created.orderId } })).toBeNull();
+
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(
+      buildRawOrder({ id: raw.id, tags: ["preorder", "Exported for Print"] }),
+    );
+    const result = await importShopifyOrder(shop.id, raw.id);
+
+    expect(result.wasExportedForPrintJustNow).toBe(true);
+    const pickJob = await db.warehousePickJob.findUnique({ where: { orderId: created.orderId } });
+    expect(pickJob).not.toBeNull();
+    const items = await db.warehousePickItem.findMany({
+      where: { warehousePickJobId: pickJob?.id },
+    });
+    expect(items).toHaveLength(1);
+  });
+
+  it("does not flag wasExportedForPrintJustNow again on a later sync where the tag is already present", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder({ tags: ["preorder", "Exported for Print"] });
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+    expect(created.wasExportedForPrintJustNow).toBe(true);
+
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const result = await importShopifyOrder(shop.id, raw.id);
+
+    expect(result.wasExportedForPrintJustNow).toBe(false);
   });
 });

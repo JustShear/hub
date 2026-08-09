@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useFetcher, useRevalidator } from "react-router";
-import type { OrderProductionSummary } from "@prisma/client";
 import { evaluateFreightShipmentEligibility } from "~/domain/freight/freight-eligibility";
 import type { BoardCardFreightShipment } from "~/domain/orders/board-query.server";
 
@@ -20,7 +19,6 @@ type FreightActionResponse =
 
 export interface PackCardFreightControlsProps {
   orderId: string;
-  productionSummary: OrderProductionSummary;
   isCancelled: boolean;
   existingShipment: BoardCardFreightShipment | null;
   canCreate: boolean;
@@ -35,7 +33,6 @@ export interface PackCardFreightControlsProps {
  */
 export function PackCardFreightControls({
   orderId,
-  productionSummary,
   isCancelled,
   existingShipment,
   canCreate,
@@ -56,16 +53,12 @@ export function PackCardFreightControls({
     );
   }
 
-  // Freight-label eligibility (production complete, not cancelled) gates
-  // the label form only — it's specifically about whether it's safe to
-  // create a real shipment. Marking fulfilled without a label has its own,
-  // looser requirement (see mark-order-fulfilled-manually.server.ts: just
-  // READY_TO_PACK/PACKING) since plenty of real orders never get
-  // productionSummary tracked through this Hub at all (e.g. anything
-  // imported with pre-existing Shopify tags) — that shouldn't block staff
-  // from marking a genuinely-packed order fulfilled.
+  // Freight-label eligibility (not cancelled, no active shipment) gates the
+  // label form only — staff are trusted to only trigger this once the order
+  // is actually, physically packed. Marking fulfilled without a label has
+  // its own, looser requirement (see mark-order-fulfilled-manually.server.ts:
+  // just READY_TO_PACK/PACKING).
   const eligibility = evaluateFreightShipmentEligibility({
-    productionSummary,
     hasActiveShipment: false,
     orderCancelledAt: isCancelled ? new Date() : null,
   });

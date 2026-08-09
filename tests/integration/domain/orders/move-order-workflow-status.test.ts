@@ -10,6 +10,19 @@ describe("moveOrderWorkflowStatus (integration)", () => {
 
   afterAll(async () => {
     if (createdOrderIds.length > 0) {
+      const pickJobIds = (
+        await db.warehousePickJob.findMany({
+          where: { orderId: { in: createdOrderIds } },
+          select: { id: true },
+        })
+      ).map((j) => j.id);
+      if (pickJobIds.length > 0) {
+        await db.warehousePickItem.deleteMany({
+          where: { warehousePickJobId: { in: pickJobIds } },
+        });
+        await db.warehousePickJob.deleteMany({ where: { id: { in: pickJobIds } } });
+      }
+      await db.shopifyOrderLine.deleteMany({ where: { orderId: { in: createdOrderIds } } });
       await db.integrationAttempt.deleteMany({
         where: { failure: { relatedOrderId: { in: createdOrderIds } } },
       });
@@ -160,6 +173,39 @@ describe("moveOrderWorkflowStatus (integration)", () => {
       },
     });
     expect(failure).not.toBeNull();
+  }, 20000);
+
+  // Whether the real (fake-credentialed) Shopify call above actually lands
+  // varies by environment, so this asserts the real invariant instead of a
+  // fixed outcome: a WarehousePickJob exists if and only if the tag sync
+  // didn't fully fail — mirrors the exact trigger in
+  // move-order-workflow-status.server.ts's shopifyTag branch.
+  it("creates a WarehousePickJob exactly when dropping into exported_for_print lands the tag", async () => {
+    const order = await createOrder(OrderStatus.NEW);
+    const staffUser = await createStaffUser();
+    await db.shopifyOrderLine.create({
+      data: {
+        orderId: order.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Test Product",
+        quantity: 3,
+      },
+    });
+
+    const result = await moveOrderWorkflowStatus({
+      shopId: order.shopId,
+      orderId: order.id,
+      targetColumnKey: "exported_for_print",
+      expectedWorkflowStatus: OrderStatus.NEW,
+      staffUserId: staffUser.id,
+    });
+
+    const pickJob = await db.warehousePickJob.findUnique({ where: { orderId: order.id } });
+    if (result.outcome === "moved") {
+      expect(pickJob).not.toBeNull();
+    } else {
+      expect(pickJob).toBeNull();
+    }
   }, 20000);
 
   // Waiting on Customer is now interactive too, same shopifyTag-driven shape

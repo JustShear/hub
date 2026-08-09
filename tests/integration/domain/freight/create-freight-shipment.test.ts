@@ -8,24 +8,6 @@ describe("createFreightShipment (integration)", () => {
   const tracker = createFreightTestTracker();
   afterAll(tracker.cleanup);
 
-  it("rejects when production isn't complete — never contacts Starshipit at all", async () => {
-    const order = await tracker.createOrder({ productionSummary: "IN_PROGRESS" });
-    const staffUser = await tracker.createStaffUser();
-
-    const result = await createFreightShipment({
-      shopId: order.shopId,
-      orderId: order.id,
-      carrierCode: "AusPost",
-      carrierServiceCode: "Standard",
-      packagingPresetName: null,
-      staffUserId: staffUser.id,
-      idempotencyKey: randomUUID(),
-    });
-
-    expect(result.outcome).toBe("rejected");
-    expect(await db.freightShipment.count({ where: { orderId: order.id } })).toBe(0);
-  });
-
   it("rejects when the order has no shipping address on file", async () => {
     const order = await tracker.createOrder({ shippingAddress: null });
     const staffUser = await tracker.createStaffUser();

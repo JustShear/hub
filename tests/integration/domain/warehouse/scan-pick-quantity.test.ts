@@ -11,7 +11,7 @@ describe("scanPickQuantity (integration)", () => {
     const order = await tracker.createOrder();
     const staffUser = await tracker.createStaffUser();
     const line = await tracker.createOrderLine(order.id, 3);
-    await tracker.completeOrderProduction({
+    await tracker.createPickJobForOrder({
       shopId: order.shopId,
       orderId: order.id,
       orderLineId: line.id,

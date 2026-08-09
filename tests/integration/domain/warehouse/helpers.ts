@@ -1,138 +1,137 @@
+import { randomUUID } from "node:crypto";
 import { db } from "~/lib/db.server";
-import { createProductionArtwork } from "~/domain/production/create-production-artwork.server";
-import { setProductionArtworkOrderLines } from "~/domain/production/allocate-production-artwork-order-lines.server";
-import { markProductionArtworkReady } from "~/domain/production/mark-production-artwork-ready.server";
-import { createExportBatch } from "~/domain/production/create-export-batch.server";
-import { startProductionTask } from "~/domain/production/task-lifecycle.server";
-import { recordProductionQuantity } from "~/domain/production/record-production-quantity.server";
-import { performQualityCheck } from "~/domain/production/perform-quality-check.server";
-import { completeProductionTask } from "~/domain/production/complete-production-task.server";
-import {
-  createProductionTestTracker,
-  PDF_BYTES,
-} from "~/../tests/integration/domain/production/helpers";
+import { createWarehousePickJobForOrder } from "~/domain/warehouse/create-warehouse-pick-job.server";
 
-/**
- * Extends the Milestone 10/11 production test tracker with a helper that
- * drives an order's production all the way to genuine completion — the
- * only way a WarehousePickJob gets auto-created (see
- * recalculateOrderProductionSummary). Cleanup is inherited unchanged: the
- * production tracker's own cleanup() already tears down WarehousePickJob/
- * Item/Issue/Note rows before deleting the order (see
- * tests/integration/domain/production/helpers.ts).
- */
+/** Shared fixture helpers for Milestone 13 (warehouse picking) integration tests. */
 export function createWarehouseTestTracker() {
-  const tracker = createProductionTestTracker();
+  const orderIds: string[] = [];
+  const staffUserIds: string[] = [];
 
-  async function completeOrderProduction(params: {
+  async function cleanup() {
+    if (orderIds.length > 0) {
+      const pickJobIds = (
+        await db.warehousePickJob.findMany({
+          where: { orderId: { in: orderIds } },
+          select: { id: true },
+        })
+      ).map((j) => j.id);
+      if (pickJobIds.length > 0) {
+        await db.warehousePickQuantityUpdate.deleteMany({
+          where: { warehousePickItem: { warehousePickJobId: { in: pickJobIds } } },
+        });
+        await db.warehouseIssue.deleteMany({ where: { warehousePickJobId: { in: pickJobIds } } });
+        await db.warehouseNote.deleteMany({ where: { warehousePickJobId: { in: pickJobIds } } });
+        await db.warehousePickItem.deleteMany({
+          where: { warehousePickJobId: { in: pickJobIds } },
+        });
+        await db.warehousePickJob.deleteMany({ where: { id: { in: pickJobIds } } });
+      }
+
+      const lineIds = (
+        await db.shopifyOrderLine.findMany({
+          where: { orderId: { in: orderIds } },
+          select: { id: true },
+        })
+      ).map((l) => l.id);
+      if (lineIds.length > 0) {
+        await db.shopifyOrderLine.deleteMany({ where: { id: { in: lineIds } } });
+      }
+
+      await db.activityEvent.deleteMany({ where: { orderId: { in: orderIds } } });
+      const orderFailureIds = (
+        await db.integrationFailure.findMany({
+          where: { relatedOrderId: { in: orderIds } },
+          select: { id: true },
+        })
+      ).map((f) => f.id);
+      if (orderFailureIds.length > 0) {
+        await db.integrationAttempt.deleteMany({ where: { failureId: { in: orderFailureIds } } });
+      }
+      await db.integrationFailure.deleteMany({ where: { relatedOrderId: { in: orderIds } } });
+      await db.shopifyOrder.deleteMany({ where: { id: { in: orderIds } } });
+    }
+    if (staffUserIds.length > 0) {
+      await db.notification.deleteMany({ where: { staffUserId: { in: staffUserIds } } });
+      await db.staffUser.deleteMany({ where: { id: { in: staffUserIds } } });
+    }
+  }
+
+  async function createOrder(overrides: { cancelledAt?: Date } = {}) {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#warehouse-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        customerEmail: `customer-${randomUUID()}@example.test`,
+        customerName: "Test Customer",
+        cancelledAt: overrides.cancelledAt,
+      },
+    });
+    orderIds.push(order.id);
+    return order;
+  }
+
+  async function createOrderLine(orderId: string, quantity = 10) {
+    return db.shopifyOrderLine.create({
+      data: {
+        orderId,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Test Product",
+        quantity,
+      },
+    });
+  }
+
+  async function createStaffUser() {
+    const shop = await db.shop.findFirstOrThrow();
+    const staffUser = await db.staffUser.create({
+      data: {
+        shopId: shop.id,
+        email: `test-${randomUUID()}@example.com`,
+        name: "Test Staff",
+        passwordHash: "irrelevant",
+      },
+    });
+    staffUserIds.push(staffUser.id);
+    return staffUser;
+  }
+
+  /**
+   * Calls the real, idempotent createWarehousePickJobForOrder directly —
+   * the same function the actual "Exported for Print" tag-gain triggers
+   * call (move-order-workflow-status.server.ts / import-order.server.ts) —
+   * rather than driving any UI/tag flow, since these tests only need a
+   * genuine WarehousePickJob to exist as their starting fixture. The
+   * `quantity` param exists only so callers can assert against a known
+   * requiredQuantity; the order line itself (created via createOrderLine)
+   * is what actually determines it.
+   */
+  async function createPickJobForOrder(params: {
     shopId: string;
     orderId: string;
     orderLineId: string;
     quantity: number;
     staffUserId: string;
   }) {
-    const group = await tracker.createNoProofRequiredGroup({
-      orderId: params.orderId,
-      shopId: params.shopId,
-      staffUserId: params.staffUserId,
-      orderLineId: params.orderLineId,
-      name: `Warehouse test group ${params.orderLineId}`,
-    });
-
-    const artwork = await createProductionArtwork({
-      shopId: params.shopId,
-      proofGroupId: group,
-      fileBuffer: PDF_BYTES,
-      originalFilename: "warehouse-test-production.pdf",
-      decorationMethod: null,
-      placement: "Front chest",
-      productionMetadata: null,
-      staffUserId: params.staffUserId,
-      idempotencyKey: null,
-    });
-    if (artwork.outcome !== "created") {
-      throw new Error(
-        `completeOrderProduction: failed to create artwork — ${JSON.stringify(artwork)}`,
-      );
-    }
-
-    const allocation = await setProductionArtworkOrderLines({
-      shopId: params.shopId,
-      productionArtworkId: artwork.productionArtworkId,
-      allocations: [{ orderLineId: params.orderLineId, quantity: params.quantity }],
-      staffUserId: params.staffUserId,
-    });
-    if (allocation.outcome !== "set") {
-      throw new Error(
-        `completeOrderProduction: failed to allocate lines — ${JSON.stringify(allocation)}`,
-      );
-    }
-
-    const ready = await markProductionArtworkReady({
-      shopId: params.shopId,
-      productionArtworkId: artwork.productionArtworkId,
-      staffUserId: params.staffUserId,
-    });
-    if (ready.outcome !== "ready") {
-      throw new Error(`completeOrderProduction: failed to mark ready — ${JSON.stringify(ready)}`);
-    }
-
-    const exportResult = await createExportBatch({
-      shopId: params.shopId,
-      orderId: params.orderId,
-      proofGroupIds: [group],
-      destination: "Warehouse test destination",
-      staffUserId: params.staffUserId,
-      idempotencyKey: `warehouse-test-export-${group}`,
-    });
-    if (exportResult.outcome !== "exported") {
-      throw new Error(
-        `completeOrderProduction: failed to export — ${JSON.stringify(exportResult)}`,
-      );
-    }
-
-    const task = await db.productionTask.findFirstOrThrow({
-      where: { productionJob: { exportBatchId: exportResult.exportBatchId } },
-    });
-    await startProductionTask({
-      shopId: params.shopId,
-      productionTaskId: task.id,
-      staffUserId: params.staffUserId,
-    });
-    await recordProductionQuantity({
-      shopId: params.shopId,
-      productionTaskId: task.id,
-      newlyProducedQuantity: task.requiredQuantity,
-      newlyFailedQuantity: 0,
-      reworkedQuantity: 0,
-      overrideReason: null,
-      idempotencyKey: `warehouse-test-qty-${task.id}`,
-      staffUserId: params.staffUserId,
-    });
-    await performQualityCheck({
-      shopId: params.shopId,
-      productionTaskId: task.id,
-      checkedQuantity: task.requiredQuantity,
-      approvedQuantity: task.requiredQuantity,
-      failedQuantity: 0,
-      checklistResult: { correct_artwork: true },
-      notes: null,
-      failureReason: null,
-      staffUserId: params.staffUserId,
-    });
-    const completeResult = await completeProductionTask({
-      shopId: params.shopId,
-      productionTaskId: task.id,
-      staffUserId: params.staffUserId,
-    });
-    if (completeResult.outcome === "rejected") {
-      throw new Error(
-        `completeOrderProduction: failed to complete — ${JSON.stringify(completeResult)}`,
-      );
-    }
-
+    await db.$transaction((tx) =>
+      createWarehousePickJobForOrder(tx, {
+        shopId: params.shopId,
+        orderId: params.orderId,
+        actorStaffId: params.staffUserId,
+      }),
+    );
     return db.warehousePickJob.findUniqueOrThrow({ where: { orderId: params.orderId } });
   }
 
-  return { ...tracker, completeOrderProduction };
+  return {
+    cleanup,
+    createOrder,
+    createOrderLine,
+    createStaffUser,
+    createPickJobForOrder,
+  };
 }

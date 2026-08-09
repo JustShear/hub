@@ -2,13 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import { DndContext } from "@dnd-kit/core";
-import {
-  OrderProductionSummary,
-  OrderProofSummary,
-  OrderStatus,
-  OrderWarehousePickSummary,
-  Priority,
-} from "@prisma/client";
+import { OrderProofSummary, OrderStatus, OrderWarehousePickSummary, Priority } from "@prisma/client";
 import { OrderCard } from "~/components/board/OrderCard";
 import type { BoardCard } from "~/domain/orders/board-query.server";
 
@@ -31,11 +25,6 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasCustomerResponseAlert: false,
     isApprovedNotExported: false,
     hasFailedProofDelivery: false,
-    hasMissingProductionArtwork: false,
-    hasReexportRequired: false,
-    productionSummary: OrderProductionSummary.NOT_READY,
-    hasOpenProductionIssue: false,
-    productionAssignedStaffName: null,
     hasActiveFreightShipment: false,
     freightTrackingNumber: null,
     freightShipment: null,
@@ -229,7 +218,6 @@ describe("OrderCard", () => {
       makeCard({
         workflowStatus: OrderStatus.READY_TO_PACK,
         columnKey: "pack",
-        productionSummary: OrderProductionSummary.COMPLETE,
       }),
       true,
       true,
@@ -243,7 +231,6 @@ describe("OrderCard", () => {
       makeCard({
         workflowStatus: OrderStatus.READY_TO_PACK,
         columnKey: "pack",
-        productionSummary: OrderProductionSummary.COMPLETE,
       }),
       true,
       false,
@@ -287,7 +274,6 @@ describe("OrderCard", () => {
       makeCard({
         workflowStatus: OrderStatus.READY_TO_PACK,
         columnKey: "pack",
-        productionSummary: OrderProductionSummary.COMPLETE,
         freightShipment: {
           id: "fs_1",
           status: "CREATED",

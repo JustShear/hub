@@ -12,13 +12,9 @@ export default [
       route(":orderId", "routes/orders.$orderId.tsx"),
       route(":orderId/more", "routes/orders.$orderId.more.tsx"),
       route(":orderId/proof-groups", "routes/orders.$orderId.proof-groups.tsx"),
-      route(":orderId/production-artwork", "routes/orders.$orderId.production-artwork.tsx"),
       route(":orderId/freight", "routes/orders.$orderId.freight.tsx"),
     ]),
     route("orders/column", "routes/orders.column.tsx"),
-    route("production", "routes/production.tsx", [route(":jobId", "routes/production.$jobId.tsx")]),
-    route("production/actions", "routes/production.actions.tsx"),
-    route("production/report", "routes/production.report.tsx"),
     route("warehouse", "routes/warehouse.tsx", [route(":jobId", "routes/warehouse.$jobId.tsx")]),
     route("warehouse/actions", "routes/warehouse.actions.tsx"),
     route("warehouse/report", "routes/warehouse.report.tsx"),
@@ -30,14 +26,6 @@ export default [
     route("notifications/actions", "routes/notifications.actions.tsx"),
     route("proof-assets/:assetId", "routes/proof-assets.$assetId.tsx"),
     route("customer-response-assets/:assetId", "routes/customer-response-assets.$assetId.tsx"),
-    route(
-      "production-artwork/:productionArtworkId/file",
-      "routes/production-artwork.$productionArtworkId.file.tsx",
-    ),
-    route(
-      "export-batches/:exportBatchId/package",
-      "routes/export-batches.$exportBatchId.package.tsx",
-    ),
     route(
       "freight-shipments/:freightShipmentId/label",
       "routes/freight-shipments.$freightShipmentId.label.tsx",

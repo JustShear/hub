@@ -50,22 +50,25 @@ describe("validateResolutionInput", () => {
     ).toBe(true);
   });
 
-  it.each(["REPRINT", "EXCHANGE"] as const)("requires a proofGroupId for %s", (resolutionType) => {
-    expect(
-      validateResolutionInput({
-        resolutionType,
-        reason: "Defective embroidery",
-        amount: null,
-        proofGroupId: null,
-      }).valid,
-    ).toBe(false);
-    expect(
-      validateResolutionInput({
-        resolutionType,
-        reason: "Defective embroidery",
-        amount: null,
-        proofGroupId: "group_1",
-      }).valid,
-    ).toBe(true);
-  });
+  it.each(["REPRINT", "EXCHANGE"] as const)(
+    "allows %s with just a reason — proofGroupId is accepted but no longer required now that the export/production pipeline it used to trigger is gone",
+    (resolutionType) => {
+      expect(
+        validateResolutionInput({
+          resolutionType,
+          reason: "Defective embroidery",
+          amount: null,
+          proofGroupId: null,
+        }).valid,
+      ).toBe(true);
+      expect(
+        validateResolutionInput({
+          resolutionType,
+          reason: "Defective embroidery",
+          amount: null,
+          proofGroupId: "group_1",
+        }).valid,
+      ).toBe(true);
+    },
+  );
 });

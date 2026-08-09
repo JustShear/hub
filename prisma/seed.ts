@@ -43,10 +43,9 @@ const PERMISSIONS = [
     description: "Add, change or clear an order's internal due dates",
   },
   // Superseded for group/version CRUD by the more granular proof_groups.*/
-  // proof_versions.* keys (Milestone 08), for customer-sending by
-  // proof_requests.* (Milestone 09), and for export-for-print by
-  // production_artwork.*/production_exports.* (Milestone 10) — kept, unused
-  // by any check going forward.
+  // proof_versions.* keys (Milestone 08) and for customer-sending by
+  // proof_requests.* (Milestone 09) — kept, unused by any check going
+  // forward.
   { key: "proof.create", description: "Create proof groups and versions" },
   { key: "proof.send", description: "Send a proof to a customer" },
   { key: "proof.export", description: "Mark an approved proof exported for print" },
@@ -123,95 +122,9 @@ const PERMISSIONS = [
     key: "proof_reminders.manage",
     description: "Suppress or view the automatic proof reminder for a proof request",
   },
-  // Milestone 10 — export for print and production artwork. Separate from
-  // proof_groups.*/proof_versions.* since production artwork is its own
-  // artefact, distinct from the customer-facing proof file.
-  {
-    key: "production_artwork.view",
-    description: "View production artwork prepared for a proof group",
-  },
-  {
-    key: "production_artwork.create",
-    description: "Create a new production artwork revision for an export-eligible proof group",
-  },
-  {
-    key: "production_artwork.upload",
-    description: "Upload the file for a production artwork revision",
-  },
-  {
-    key: "production_artwork.update",
-    description:
-      "Edit a production artwork revision's metadata, order-line allocation or validation state",
-  },
-  {
-    key: "production_artwork.cancel",
-    description: "Cancel a production artwork revision",
-  },
-  {
-    key: "production_exports.create",
-    description: "Create an export batch (the dedicated export-for-print action) for an order",
-  },
-  {
-    key: "production_exports.view",
-    description: "View export batches, their manifests and export history for an order",
-  },
-  {
-    key: "production_exports.download",
-    description: "Download a generated export package",
-  },
-  {
-    key: "production_exports.reexport",
-    description: "Re-export an order with a documented reason after something has changed",
-  },
-  {
-    key: "production_exports.override",
-    description:
-      "Export without the normal approved-proof/no-proof-required eligibility using the manual-override framework",
-  },
-  // Milestone 11 — production queue and workstation workflow. Separate from
-  // production_artwork.*/production_exports.* (Milestone 10) since those
-  // gate preparing/exporting the artwork, while these gate the actual
-  // floor-work queue that consumes an export batch.
-  { key: "production_queue.view", description: "View the production queue" },
-  {
-    key: "production_jobs.create",
-    description: "Create production jobs/tasks from a successful export batch",
-  },
-  { key: "production_jobs.view", description: "View production job and task detail" },
-  { key: "production_jobs.assign", description: "Assign a production job or task to staff" },
-  {
-    key: "production_jobs.update",
-    description: "Edit a production job's priority, due date or department",
-  },
-  { key: "production_jobs.start", description: "Start or resume a production task" },
-  { key: "production_jobs.pause", description: "Pause a production task with a reason" },
-  { key: "production_jobs.complete", description: "Complete a production task or job" },
-  {
-    key: "production_jobs.reopen",
-    description: "Reopen a completed production task or job, with a reason",
-  },
-  {
-    key: "production_quantities.update",
-    description: "Record produced, failed or rework quantities against a production task",
-  },
-  {
-    key: "production_quality_check.perform",
-    description: "Record a quality-check result against a production task",
-  },
-  { key: "production_issues.create", description: "Report a production issue" },
-  { key: "production_issues.resolve", description: "Resolve or cancel a production issue" },
-  {
-    key: "production_notes.create",
-    description: "Add an internal note to a production job or task",
-  },
-  {
-    key: "production_overrides.create",
-    description:
-      "Perform a reasoned manual override on production (e.g. reopening completed work, exceeding an allocated quantity)",
-  },
-  // Milestone 12 — Starshipit freight labels. Gated on
-  // ShopifyOrder.productionSummary === COMPLETE at the domain-function level,
-  // not by any packing model (none exists yet — see ADR-0008).
+  // Milestone 12 — Starshipit freight labels. Staff are trusted to trigger
+  // this once the order is actually, physically packed — no automated
+  // completeness gate (no packing model exists yet — see ADR-0008).
   {
     key: "freight_shipments.view",
     description: "View freight shipments and their tracking/Shopify-sync status for an order",
@@ -230,7 +143,8 @@ const PERMISSIONS = [
   },
   // Milestone 13 — warehouse picking. A checklist workflow, not real
   // inventory tracking (no SKU/bin on-hand-quantity model exists). Auto-
-  // created once ShopifyOrder.productionSummary === COMPLETE — see ADR-0009.
+  // created once an order gains the "Exported for Print" Shopify tag — see
+  // ADR-0009.
   {
     key: "warehouse_picks.view",
     description: "View warehouse pick jobs and their pick lists for an order",
@@ -316,31 +230,6 @@ const ROLE_PERMISSIONS: Record<string, readonly (typeof PERMISSIONS)[number]["ke
     "proof_responses.view",
     "proof_responses.override",
     "proof_reminders.manage",
-    "production_artwork.view",
-    "production_artwork.create",
-    "production_artwork.upload",
-    "production_artwork.update",
-    "production_artwork.cancel",
-    "production_exports.create",
-    "production_exports.view",
-    "production_exports.download",
-    "production_exports.reexport",
-    "production_exports.override",
-    "production_queue.view",
-    "production_jobs.create",
-    "production_jobs.view",
-    "production_jobs.assign",
-    "production_jobs.update",
-    "production_jobs.start",
-    "production_jobs.pause",
-    "production_jobs.complete",
-    "production_jobs.reopen",
-    "production_quantities.update",
-    "production_quality_check.perform",
-    "production_issues.create",
-    "production_issues.resolve",
-    "production_notes.create",
-    "production_overrides.create",
     "freight_shipments.view",
     "freight_shipments.create",
     "freight_shipments.download",
@@ -397,26 +286,8 @@ const ROLE_PERMISSIONS: Record<string, readonly (typeof PERMISSIONS)[number]["ke
     "proof_responses.view",
     "proof_responses.override",
     "proof_reminders.manage",
-    "production_artwork.view",
-    "production_artwork.create",
-    "production_artwork.upload",
-    "production_artwork.update",
-    "production_artwork.cancel",
-    "production_exports.create",
-    "production_exports.view",
-    "production_exports.download",
-    "production_exports.reexport",
-    // Artwork staff can see production state and exact exported artwork,
-    // and respond to artwork-related production issues — but never
-    // automatically gain the ability to start/complete production work
-    // itself, matching the milestone's own "do not automatically receive
-    // production completion permissions" instruction.
-    "production_queue.view",
-    "production_jobs.view",
-    "production_issues.create",
     // Milestone 14 — any staff member can report a problem and add notes;
-    // only management updates/assigns/resolves/cancels a case, mirroring
-    // exactly how Print Staff can create a ProductionIssue but not resolve one.
+    // only management updates/assigns/resolves/cancels a case.
     "exception_cases.view",
     "exception_cases.create",
     "exception_notes.create",
@@ -424,10 +295,11 @@ const ROLE_PERMISSIONS: Record<string, readonly (typeof PERMISSIONS)[number]["ke
     "notes.internal.create",
     "overrides.create",
   ],
-  // Maps onto the milestone's suggested "Production" role — this shop's
-  // existing floor-work role (screen print/DTF/embroidery/press) already
-  // matches AssignmentRole.PRODUCTION's reserved meaning, so it's extended
-  // here rather than introducing a sixth StaffUser role.
+  // Originally the floor-work role (screen print/DTF/embroidery/press) for
+  // the now-removed in-Hub Production Job queue — kept as a role with
+  // read-only visibility into proofs/orders rather than deleted, since real
+  // print work still happens (just tracked via Dropbox + the Kanban board
+  // outside the Hub).
   PRINT_STAFF: [
     "board.view",
     "orders.view",
@@ -435,39 +307,21 @@ const ROLE_PERMISSIONS: Record<string, readonly (typeof PERMISSIONS)[number]["ke
     "proof_versions.view",
     "proof_requests.view",
     "proof_responses.view",
-    "production_artwork.view",
-    "production_exports.view",
-    "production_exports.download",
-    "production_queue.view",
-    "production_jobs.view",
-    "production_jobs.assign",
-    "production_jobs.start",
-    "production_jobs.pause",
-    "production_jobs.complete",
-    "production_quantities.update",
-    "production_quality_check.perform",
-    "production_issues.create",
-    "production_notes.create",
     "exception_cases.view",
     "exception_cases.create",
     "exception_notes.create",
   ],
   PACKING_STAFF: [
     "board.view",
-    // Read-only view of completed production where needed — no production
-    // editing by default, per the milestone's own suggested access.
-    "production_queue.view",
-    "production_jobs.view",
     // Milestone 12 — this role's first real capability: view/download only
     // for now (matching the milestone's own suggested access) — shipment
     // creation and cancellation stay Manager-only until real usage patterns
     // justify widening it.
     "freight_shipments.view",
     "freight_shipments.download",
-    // Milestone 13 — this role's first real job-execution capability set,
-    // mirroring exactly how Print Staff can create but not resolve
-    // production issues: everything needed to run the pick queue day to
-    // day, but issue resolution stays Manager-only.
+    // Milestone 13 — this role's first real job-execution capability set:
+    // everything needed to run the pick queue day to day, but issue
+    // resolution stays Manager-only.
     "warehouse_picks.view",
     "warehouse_picks.assign",
     "warehouse_picks.record_quantity",

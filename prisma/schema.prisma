@@ -146,24 +146,6 @@ enum OrderProofSummary {
   BLOCKED
 }
 
-// Milestone 11 — a second, independent order-level rollup alongside
-// proofSummary. Proofing and production are genuinely separate concerns by
-// this point (an order can be ALL_REQUIRED_PROOFS_EXPORTED while production
-// hasn't started, or COMPLETE in production while a later reprint reopens
-// proofing) — folding this into OrderProofSummary would conflate two
-// different lifecycles into one enum. Never hand-set; see
-// recalculateOrderProductionSummary.
-enum OrderProductionSummary {
-  NOT_READY
-  READY_FOR_PRODUCTION
-  QUEUED
-  IN_PROGRESS
-  PARTIALLY_COMPLETE
-  BLOCKED
-  AWAITING_QUALITY_CHECK
-  COMPLETE
-}
-
 enum Priority {
   LOW
   NORMAL
@@ -224,9 +206,7 @@ model ShopifyOrder {
   // real transition has happened.
   workflowStatusChangedAt DateTime                  @default(now())
   proofSummary            OrderProofSummary         @default(PROOFS_NOT_STARTED)
-  // Milestone 11 — independent of proofSummary, see OrderProductionSummary.
-  productionSummary       OrderProductionSummary    @default(NOT_READY)
-  // Milestone 13 — independent of proofSummary/productionSummary, see
+  // Milestone 13 — independent of proofSummary, see
   // OrderWarehousePickSummary.
   warehousePickSummary    OrderWarehousePickSummary @default(NOT_STARTED)
   priority                Priority                  @default(NORMAL)
@@ -252,9 +232,6 @@ model ShopifyOrder {
   integrationFailures IntegrationFailure[]
   klaviyoDispatches   KlaviyoDispatch[]
   proofRequests       ProofRequest[]
-  exportBatches       ExportBatch[]
-  productionJobs      ProductionJob[]
-  productionIssues    ProductionIssue[]
   freightShipments    FreightShipment[]
   warehousePickJob    WarehousePickJob?
   exceptionCases      ExceptionCase[]
@@ -264,7 +241,6 @@ model ShopifyOrder {
   @@index([shopId, workflowStatus])
   @@index([shopId, priority])
   @@index([shopId, proofSummary])
-  @@index([shopId, productionSummary])
   @@index([shopId, warehousePickSummary])
 }
 
@@ -285,12 +261,11 @@ model ShopifyOrderLine {
   discountAllocations Json?
   createdAt           DateTime     @default(now())
 
-  properties                   ShopifyLineProperty[]
-  artworkLinks                 ArtworkOrderLineLink[]
-  proofGroupLines              ProofGroupOrderLine[]
-  proofRequirement             ProofRequirement?
-  productionArtworkAllocations ProductionArtworkOrderLine[]
-  exceptionCases               ExceptionCase[]
+  properties       ShopifyLineProperty[]
+  artworkLinks     ArtworkOrderLineLink[]
+  proofGroupLines  ProofGroupOrderLine[]
+  proofRequirement ProofRequirement?
+  exceptionCases   ExceptionCase[]
 
   @@unique([orderId, shopifyLineGid])
 }
@@ -449,15 +424,12 @@ model ProofGroup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  orderLines         ProofGroupOrderLine[]
-  artworkAssetLinks  ProofGroupArtworkAsset[]
-  notes              ProofNote[]
-  versions           ProofVersion[]
-  productionArtworks ProductionArtwork[]
-  exportBatchItems   ExportBatchItem[]
-  productionTasks    ProductionTask[]
-  proofRequirement   ProofRequirement?
-  requestLinks       ProofRequestGroup[]
+  orderLines        ProofGroupOrderLine[]
+  artworkAssetLinks ProofGroupArtworkAsset[]
+  notes             ProofNote[]
+  versions          ProofVersion[]
+  proofRequirement  ProofRequirement?
+  requestLinks      ProofRequestGroup[]
 
   @@index([orderId, status])
   @@index([assignedStaffId])
@@ -578,12 +550,11 @@ model ProofVersion {
   supersededAt DateTime?
   createdAt    DateTime  @default(now())
 
-  assets             ProofAsset[]
-  sourceAssets       ProofVersionSourceAsset[]
-  notes              ProofNote[]
-  responses          CustomerProofResponse[]
-  productionArtworks ProductionArtwork[]
-  requestLinks       ProofRequestGroup[]
+  assets       ProofAsset[]
+  sourceAssets ProofVersionSourceAsset[]
+  notes        ProofNote[]
+  responses    CustomerProofResponse[]
+  requestLinks ProofRequestGroup[]
 
   @@unique([proofGroupId, versionNumber])
 }
@@ -737,526 +708,14 @@ model ProofRequestGroup {
 }
 
 // ---------------------------------------------------------------------------
-// 4.9 Production artwork & export batches (Milestone 10)
-// ---------------------------------------------------------------------------
-//
-// Replaces the original architecture review's placeholder ProductionExport
-// model (removed here — it had zero references anywhere in app code, only
-// ever a reserved-but-unbuilt table). See docs/decisions/0006-production-
-// artwork-export-model.md for why the richer model below was needed instead
-// of retrofitting that placeholder.
-
-enum ProductionArtworkStatus {
-  DRAFT
-  VALIDATION_FAILED
-  READY_FOR_EXPORT
-  EXPORTED
-  SUPERSEDED
-  CANCELLED
-}
-
-enum ColourMode {
-  RGB
-  CMYK
-  SPOT
-  GREYSCALE
-  UNKNOWN
-}
-
-// One row per revision — never overwritten, matching ProofVersion's own
-// supersession convention. A group's "current" revision is whichever one
-// hasn't been superseded/cancelled.
-model ProductionArtwork {
-  id           String     @id @default(cuid())
-  shopId       String
-  proofGroupId String
-  proofGroup   ProofGroup @relation(fields: [proofGroupId], references: [id])
-
-  // Exactly one of the two eligibility paths applies to a given group at
-  // any time (enforced at the application layer, the same "exactly one of
-  // these" convention already used by ProofRequirement/ProofNote).
-  sourceProofVersionId        String?
-  sourceProofVersion          ProofVersion?  @relation(fields: [sourceProofVersionId], references: [id])
-  sourceNoProofReasonSnapshot NoProofReason?
-
-  revisionNumber Int
-  status         ProductionArtworkStatus @default(DRAFT)
-
-  storageKey       String
-  originalFilename String
-  mimeType         String
-  sizeBytes        Int
-  checksum         String // sha256, hex
-  // Not every safe production format can be rendered in a browser (TIFF/
-  // EPS/AI/EMB) — this drives an honest "can't preview, download instead"
-  // UI state rather than a failed image tag.
-  isPreviewable    Boolean @default(false)
-
-  width      Int?
-  height     Int?
-  dpi        Int?
-  colourMode ColourMode?
-
-  decorationMethod   DecorationMethod
-  placement          String?
-  // Print width/height (mm), colour count, thread/print colours, garment-
-  // colour notes, underbase/white-ink/mirroring/cut-path flags, machine
-  // notes, production instructions, orientation — descriptive production
-  // metadata that's never individually queried or filtered, so it's one
-  // typed JSON blob (see ProductionArtworkMetadata in
-  // app/domain/production/labels.ts) rather than a dozen mostly-null
-  // columns, the same pattern already used for ActivityEvent.metadata /
-  // KlaviyoDispatch.eventProperties elsewhere in this schema.
-  productionMetadata Json?
-
-  validationStatus   Boolean @default(false)
-  validationMessages Json?
-
-  createdByStaffId   String
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  cancelledAt        DateTime?
-  cancelReason       String?
-  cancelledByStaffId String?
-
-  supersededByArtworkId String?            @unique
-  supersededByArtwork   ProductionArtwork? @relation("ProductionArtworkSupersession", fields: [supersededByArtworkId], references: [id])
-  supersedesArtwork     ProductionArtwork? @relation("ProductionArtworkSupersession")
-  supersededAt          DateTime?
-
-  orderLineAllocations ProductionArtworkOrderLine[]
-  exportBatchItems     ExportBatchItem[]
-  productionTasks      ProductionTask[]
-
-  @@unique([proofGroupId, revisionNumber])
-  @@index([shopId, status])
-}
-
-// Which order lines (and what quantity of each) this specific artwork
-// revision covers — always validated against the SAME order as the
-// production artwork's own proof group; never a cross-order line.
-model ProductionArtworkOrderLine {
-  id                  String            @id @default(cuid())
-  productionArtworkId String
-  productionArtwork   ProductionArtwork @relation(fields: [productionArtworkId], references: [id])
-  orderLineId         String
-  orderLine           ShopifyOrderLine  @relation(fields: [orderLineId], references: [id])
-  quantity            Int
-  createdAt           DateTime          @default(now())
-
-  @@unique([productionArtworkId, orderLineId])
-}
-
-enum ExportBatchStatus {
-  PREPARING
-  READY
-  EXPORTED
-  FAILED
-  SUPERSEDED
-  CANCELLED
-}
-
-// One durable row per "Export for Print" submission — the dedicated,
-// audited action the SRS requires in place of a casual Kanban drag.
-model ExportBatch {
-  id             String            @id @default(cuid())
-  shopId         String
-  orderId        String
-  order          ShopifyOrder      @relation(fields: [orderId], references: [id])
-  batchNumber    Int // sequential per order — human-facing ("Order #1234, Batch 2")
-  status         ExportBatchStatus @default(PREPARING)
-  idempotencyKey String            @unique
-
-  createdByStaffId String
-  createdAt        DateTime  @default(now())
-  exportedAt       DateTime?
-
-  destination String?
-
-  manifestSnapshot  Json?
-  packageStorageKey String?
-  packageChecksum   String?
-  downloadCount     Int       @default(0)
-  lastDownloadedAt  DateTime?
-
-  previousBatchId String?      @unique
-  previousBatch   ExportBatch? @relation("ExportBatchReexport", fields: [previousBatchId], references: [id])
-  reexportedBatch ExportBatch? @relation("ExportBatchReexport")
-  reexportReason  String?
-
-  cancelledAt  DateTime?
-  cancelReason String?
-
-  items                ExportBatchItem[]
-  productionJobs       ProductionJob[]
-  exceptionResolutions ExceptionCaseResolution[]
-
-  @@unique([orderId, batchNumber])
-  @@index([shopId, status])
-}
-
-// Immutable — freezes exactly what was exported at export time. Never
-// updated once created; a re-export creates entirely new rows on a new
-// batch instead, so an old manifest/batch can never be silently altered by
-// a later revision or a later customer response.
-model ExportBatchItem {
-  id                  String            @id @default(cuid())
-  exportBatchId       String
-  exportBatch         ExportBatch       @relation(fields: [exportBatchId], references: [id])
-  proofGroupId        String
-  proofGroup          ProofGroup        @relation(fields: [proofGroupId], references: [id])
-  productionArtworkId String
-  productionArtwork   ProductionArtwork @relation(fields: [productionArtworkId], references: [id])
-
-  sourceProofVersionId        String?
-  sourceProofVersionNumber    Int?
-  sourceNoProofReasonSnapshot NoProofReason?
-  decorationMethodSnapshot    DecorationMethod
-  placementSnapshot           String?
-  createdAt                   DateTime         @default(now())
-
-  productionTask ProductionTask?
-
-  @@unique([exportBatchId, proofGroupId])
-}
-
-// ---------------------------------------------------------------------------
-// 4.10 Production queue and workstation workflow (Milestone 11)
-// ---------------------------------------------------------------------------
-//
-// A production job is created only from a successful ExportBatch, grouped
-// by decoration method (one job per (exportBatch, decorationMethod) pair —
-// @@unique below is the job-level idempotency guard). A production task is
-// created one-per-ExportBatchItem by default (@unique on exportBatchItemId
-// is the task-level idempotency guard) — the addressable unit staff actually
-// work on. Both job and task status are DERIVED, never hand-set directly by
-// a staff action; see recalculateProductionJobStatus /
-// recalculateOrderProductionSummary.
-
-enum ProductionJobStatus {
-  QUEUED
-  READY
-  IN_PROGRESS
-  PAUSED
-  BLOCKED
-  AWAITING_QUALITY_CHECK
-  COMPLETE
-  CANCELLED
-}
-
-enum ProductionTaskStatus {
-  QUEUED
-  READY
-  IN_PROGRESS
-  PAUSED
-  BLOCKED
-  PARTIALLY_COMPLETE
-  AWAITING_QUALITY_CHECK
-  COMPLETE
-  FAILED
-  CANCELLED
-}
-
-// Schema-ready for genuine multi-step decomposition (e.g. DTF print ->
-// press -> QC) without inventing it where the current data doesn't define
-// it — every task auto-created from an ExportBatchItem defaults to GENERAL.
-enum ProductionTaskType {
-  PRINT
-  PRESS
-  EMBROIDER
-  SUBLIMATE
-  VINYL_APPLY
-  UNPRINTED_PREP
-  EXTERNAL_PRODUCTION
-  QUALITY_CHECK
-  GENERAL
-}
-
-model ProductionJob {
-  id      String       @id @default(cuid())
-  shopId  String
-  orderId String
-  order   ShopifyOrder @relation(fields: [orderId], references: [id])
-
-  exportBatchId String
-  exportBatch   ExportBatch @relation(fields: [exportBatchId], references: [id])
-
-  // Sequential per order, human-facing ("Order #1234, Job 2") — same
-  // pattern as ExportBatch.batchNumber.
-  jobNumber        Int
-  decorationMethod DecorationMethod
-
-  status   ProductionJobStatus @default(QUEUED)
-  priority Priority            @default(NORMAL)
-  dueDate  DateTime?
-
-  assignedStaffId String?
-  // Free-text department/team label — "where supported," not a full Team
-  // model this milestone.
-  assignedTeam    String?
-
-  createdByStaffId   String
-  createdAt          DateTime  @default(now())
-  startedAt          DateTime?
-  pausedAt           DateTime?
-  completedAt        DateTime?
-  qualityCheckedAt   DateTime?
-  completedByStaffId String?
-
-  reopenedAt        DateTime?
-  reopenReason      String?
-  reopenedByStaffId String?
-
-  cancelledAt        DateTime?
-  cancelReason       String?
-  cancelledByStaffId String?
-
-  // Optimistic-concurrency guard for mutations without a natural
-  // expected-status CAS to compare against (e.g. assignment/priority/due-
-  // date edits) — status transitions still use the established scoped-
-  // updateMany-on-expected-status pattern, and bump this at the same time.
-  version   Int      @default(1)
-  updatedAt DateTime @updatedAt
-
-  tasks  ProductionTask[]
-  issues ProductionIssue[]
-  notes  ProductionNote[]
-
-  @@unique([exportBatchId, decorationMethod])
-  @@unique([orderId, jobNumber])
-  @@index([shopId, status])
-  @@index([assignedStaffId])
-  @@index([dueDate])
-}
-
-// One row per ExportBatchItem — the immutable trigger. Never re-derives its
-// artwork/allocation from "whatever the proof group's latest revision is
-// now": productionArtworkId and exportBatchItemId are fixed at creation and
-// never repointed, so a later artwork revision or re-export can never
-// mutate a historical task.
-model ProductionTask {
-  id              String        @id @default(cuid())
-  productionJobId String
-  productionJob   ProductionJob @relation(fields: [productionJobId], references: [id])
-
-  proofGroupId String
-  proofGroup   ProofGroup @relation(fields: [proofGroupId], references: [id])
-
-  exportBatchItemId String          @unique
-  exportBatchItem   ExportBatchItem @relation(fields: [exportBatchItemId], references: [id])
-
-  productionArtworkId String
-  productionArtwork   ProductionArtwork @relation(fields: [productionArtworkId], references: [id])
-
-  taskType         ProductionTaskType @default(GENERAL)
-  decorationMethod DecorationMethod
-  placement        String?
-
-  status          ProductionTaskStatus @default(QUEUED)
-  assignedStaffId String?
-
-  requiredQuantity        Int
-  completedQuantity       Int @default(0)
-  failedQuantity          Int @default(0)
-  reworkQuantity          Int @default(0)
-  qualityApprovedQuantity Int @default(0)
-
-  startedAt             DateTime?
-  pausedAt              DateTime?
-  pauseReason           String?
-  totalPausedDurationMs Int       @default(0)
-  completedAt           DateTime?
-  completedByStaffId    String?
-
-  productionInstructions String?
-
-  // Reserved for genuine multi-step dependency ordering — not enforced
-  // beyond storage this milestone (see docs/development.md "Deferred").
-  sequenceOrder   Int              @default(0)
-  dependsOnTaskId String?
-  dependsOnTask   ProductionTask?  @relation("ProductionTaskDependency", fields: [dependsOnTaskId], references: [id])
-  dependentTasks  ProductionTask[] @relation("ProductionTaskDependency")
-
-  reopenedAt        DateTime?
-  reopenReason      String?
-  reopenedByStaffId String?
-
-  cancelledAt        DateTime?
-  cancelReason       String?
-  cancelledByStaffId String?
-
-  version   Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  qualityChecks   ProductionQualityCheck[]
-  quantityUpdates ProductionQuantityUpdate[]
-  issues          ProductionIssue[]
-  notes           ProductionNote[]
-
-  @@index([productionJobId, status])
-  @@index([assignedStaffId])
-  @@index([proofGroupId])
-}
-
-// Append-only log — one row per quantity-recording submission, never
-// edited or deleted. The @@unique constraint is the real idempotency
-// guard: a duplicate submission (double-click, retried request) with the
-// same client-generated key can never increment the task's quantities
-// twice, matching the milestone's own "use database constraints where
-// practical" instruction rather than relying on an application-level check
-// alone.
-model ProductionQuantityUpdate {
-  id               String         @id @default(cuid())
-  productionTaskId String
-  productionTask   ProductionTask @relation(fields: [productionTaskId], references: [id])
-  idempotencyKey   String
-
-  newlyProducedQuantity Int     @default(0)
-  newlyFailedQuantity   Int     @default(0)
-  reworkedQuantity      Int     @default(0)
-  isOverride            Boolean @default(false)
-  overrideReason        String?
-
-  staffUserId String
-  createdAt   DateTime @default(now())
-
-  @@unique([productionTaskId, idempotencyKey])
-}
-
-// Append-only log — one row per quality-check ATTEMPT, never edited or
-// deleted, so a failed check followed by a later passing check preserves
-// full history rather than being overwritten.
-model ProductionQualityCheck {
-  id               String         @id @default(cuid())
-  productionTaskId String
-  productionTask   ProductionTask @relation(fields: [productionTaskId], references: [id])
-
-  checkedQuantity  Int
-  approvedQuantity Int
-  failedQuantity   Int
-  // Centralised, decoration-method-aware checklist result — see
-  // app/domain/production/quality-checklist.ts.
-  checklistResult  Json?
-  notes            String?
-  failureReason    String?
-  reworkRequired   Boolean @default(false)
-
-  checkedByStaffId String
-  createdAt        DateTime @default(now())
-
-  attachments ProductionQualityCheckAttachment[]
-}
-
-model ProductionQualityCheckAttachment {
-  id               String                 @id @default(cuid())
-  qualityCheckId   String
-  qualityCheck     ProductionQualityCheck @relation(fields: [qualityCheckId], references: [id])
-  storageKey       String
-  originalFilename String?
-  mimeType         String?
-  sizeBytes        Int?
-  createdAt        DateTime               @default(now())
-}
-
-enum ProductionIssueType {
-  ARTWORK_PROBLEM
-  WRONG_FILE
-  WRONG_PLACEMENT
-  WRONG_COLOUR
-  GARMENT_DAMAGE
-  PRINT_DEFECT
-  EMBROIDERY_DEFECT
-  EQUIPMENT_ISSUE
-  STOCK_SHORTAGE
-  QUANTITY_DISCREPANCY
-  OTHER
-}
-
-enum ProductionIssueStatus {
-  OPEN
-  INVESTIGATING
-  WAITING
-  RESOLVED
-  CANCELLED
-}
-
-// Never hard-deleted. proofGroupId/productionArtworkId are loose snapshot
-// references (no FK), matching IntegrationFailure.relatedProofGroupId's
-// existing precedent — the real relational path is productionTask ->
-// proofGroup / productionArtwork; these are just quick-reference fields.
-model ProductionIssue {
-  id      String       @id @default(cuid())
-  shopId  String
-  orderId String
-  order   ShopifyOrder @relation(fields: [orderId], references: [id])
-
-  productionJobId  String
-  productionJob    ProductionJob   @relation(fields: [productionJobId], references: [id])
-  productionTaskId String?
-  productionTask   ProductionTask? @relation(fields: [productionTaskId], references: [id])
-
-  proofGroupId        String?
-  productionArtworkId String?
-
-  issueType      ProductionIssueType
-  severity       Severity
-  status         ProductionIssueStatus @default(OPEN)
-  description    String
-  isBlocking     Boolean               @default(false)
-  reworkQuantity Int?
-
-  createdByStaffId  String
-  assignedStaffId   String?
-  createdAt         DateTime  @default(now())
-  resolvedAt        DateTime?
-  resolvedByStaffId String?
-  resolution        String?
-
-  attachments ProductionIssueAttachment[]
-
-  @@index([productionJobId, status])
-  @@index([productionTaskId, status])
-  @@index([orderId])
-}
-
-model ProductionIssueAttachment {
-  id               String          @id @default(cuid())
-  issueId          String
-  issue            ProductionIssue @relation(fields: [issueId], references: [id])
-  storageKey       String
-  originalFilename String?
-  mimeType         String?
-  sizeBytes        Int?
-  createdAt        DateTime        @default(now())
-}
-
-// Mirrors ProofNote's shape/policy exactly (internal only, no edit/delete,
-// scoped to exactly one parent) at production scope instead of proof scope.
-model ProductionNote {
-  id               String          @id @default(cuid())
-  productionJobId  String?
-  productionJob    ProductionJob?  @relation(fields: [productionJobId], references: [id])
-  productionTaskId String?
-  productionTask   ProductionTask? @relation(fields: [productionTaskId], references: [id])
-  authorStaffId    String
-  body             String
-  createdAt        DateTime        @default(now())
-
-  @@index([productionJobId])
-  @@index([productionTaskId])
-}
-
-// ---------------------------------------------------------------------------
 // 4.11 Freight and fulfilment (Milestone 12)
 // ---------------------------------------------------------------------------
 //
 // One row per Starshipit shipment attempt for an order. Freight-label
 // creation is a dedicated, staff-triggered action (never automatic, never a
-// Kanban drag) gated on ShopifyOrder.productionSummary === COMPLETE — there
-// is no Packing milestone/model yet, so staff self-certify "this is actually
-// packed" by choosing to click the action. idempotencyKey is the real
-// concurrency guard (same reserve-then-finalise shape as ExportBatch); the
+// Kanban drag) — there is no Packing milestone/model yet, so staff
+// self-certify "this is actually packed" by choosing to click the action.
+// idempotencyKey is the real concurrency guard (reserve-then-finalise). The
 // Shopify tracking write-back is a separate, independently-retryable step
 // recorded through the existing IntegrationFailure/IntegrationType.STARSHIPIT
 // mechanism (see ADR-0008) rather than rolling back a shipment that already
@@ -1326,8 +785,8 @@ model FreightShipment {
 // 4.12 Warehouse picking (Milestone 13)
 // ---------------------------------------------------------------------------
 //
-// Turns "production is done" (ShopifyOrder.productionSummary === COMPLETE)
-// into a tracked staff task: physically gather every item for an order and
+// Turns "an order gained the real Exported for Print Shopify tag" into a
+// tracked staff task: physically gather every item for an order and
 // hand it to packing. Deliberately a checklist workflow, not real inventory
 // tracking — there is no SKU/bin on-hand-quantity model anywhere in this
 // schema (Barcode/ScanEvent below are a generic, still-unused scanning
@@ -1373,11 +832,11 @@ enum WarehouseIssueStatus {
   CANCELLED
 }
 
-// One per order — unlike ProductionJob/FreightShipment, only one pick job
-// per order ever makes sense, so this is a real DB constraint rather than
-// an application-level rule. Auto-created by createWarehousePickJobForOrder
-// the moment productionSummary transitions to COMPLETE (see
-// recalculateOrderProductionSummary).
+// One per order — unlike FreightShipment, only one pick job per order ever
+// makes sense, so this is a real DB constraint rather than an
+// application-level rule. Auto-created by createWarehousePickJobForOrder
+// the moment an order gains the "Exported for Print" Shopify tag (see
+// move-order-workflow-status.server.ts and import-order.server.ts).
 model WarehousePickJob {
   id      String       @id @default(cuid())
   shopId  String
@@ -1996,28 +1455,28 @@ model ExceptionCase {
 
   category    ExceptionCaseCategory
   initiatedBy ExceptionCaseInitiator
-  status      ExceptionCaseStatus   @default(OPEN)
-  severity    Severity              @default(MEDIUM)
+  status      ExceptionCaseStatus    @default(OPEN)
+  severity    Severity               @default(MEDIUM)
 
   summary      String
   customerNote String?
 
-  assignedStaffId  String?
-  createdByStaffId String
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  assignedStaffId        String?
+  createdByStaffId       String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
   investigationStartedAt DateTime?
 
   // Return labels are manual/external this milestone — no carrier API call,
   // just the fact that one was provided.
-  returnLabelProvidedAt      DateTime?
-  returnLabelNote            String?
+  returnLabelProvidedAt        DateTime?
+  returnLabelNote              String?
   returnLabelProvidedByStaffId String?
 
-  resolvedAt          DateTime?
-  cancelledAt         DateTime?
-  cancelReason        String?
-  cancelledByStaffId  String?
+  resolvedAt         DateTime?
+  cancelledAt        DateTime?
+  cancelReason       String?
+  cancelledByStaffId String?
 
   resolutions ExceptionCaseResolution[]
   attachments ExceptionCaseAttachment[]
@@ -2045,17 +1504,10 @@ model ExceptionCaseResolution {
   amount       Decimal? @db.Decimal(12, 2)
   currencyCode String?
 
-  // REPRINT/EXCHANGE only — set when resolveExceptionCase calls the existing
-  // createExportBatch/reExportBatch (app/domain/production/create-export-
-  // batch.server.ts), reusing the real production pipeline instead of a
-  // second, disconnected reprint-tracking mechanism.
-  exportBatchId String?
-  exportBatch   ExportBatch? @relation(fields: [exportBatchId], references: [id])
-
-  decidedByStaffId    String
-  decidedAt           DateTime  @default(now())
-  completedByStaffId  String?
-  completedAt         DateTime?
+  decidedByStaffId   String
+  decidedAt          DateTime  @default(now())
+  completedByStaffId String?
+  completedAt        DateTime?
 
   @@index([exceptionCaseId])
 }

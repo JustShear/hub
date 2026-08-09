@@ -16,7 +16,6 @@ import { ShopifyTab } from "~/components/order-drawer/ShopifyTab";
 import { ActivityTab } from "~/components/order-drawer/ActivityTab";
 import { PlaceholderTab } from "~/components/order-drawer/PlaceholderTab";
 import { ProofsTab } from "~/components/order-drawer/proofs/ProofsTab";
-import { ProductionTab } from "~/components/order-drawer/production/ProductionTab";
 import { FreightTab } from "~/components/order-drawer/freight/FreightTab";
 import { WarehouseTab } from "~/components/order-drawer/warehouse/WarehouseTab";
 import { ExceptionsTab } from "~/components/order-drawer/exceptions/ExceptionsTab";
@@ -47,15 +46,6 @@ export interface OrderDrawerProps {
   canViewProofResponses: boolean;
   canOverrideProofResponses: boolean;
   canManageProofReminders: boolean;
-  canViewProductionArtwork: boolean;
-  canCreateProductionArtwork: boolean;
-  canUpdateProductionArtwork: boolean;
-  canCancelProductionArtwork: boolean;
-  canCreateExportBatch: boolean;
-  canViewExportBatches: boolean;
-  canDownloadExportBatches: boolean;
-  canReexportBatch: boolean;
-  canViewProductionQueue: boolean;
   canViewFreight: boolean;
   canCreateFreight: boolean;
   canDownloadFreight: boolean;
@@ -97,15 +87,6 @@ export function OrderDrawer({
   canViewProofResponses,
   canOverrideProofResponses,
   canManageProofReminders,
-  canViewProductionArtwork,
-  canCreateProductionArtwork,
-  canUpdateProductionArtwork,
-  canCancelProductionArtwork,
-  canCreateExportBatch,
-  canViewExportBatches,
-  canDownloadExportBatches,
-  canReexportBatch,
-  canViewProductionQueue,
   canViewFreight,
   canCreateFreight,
   canDownloadFreight,
@@ -290,7 +271,6 @@ export function OrderDrawer({
                 { value: "products", label: "Products" },
                 { value: "uploads", label: "Uploads" },
                 { value: "proofs", label: "Proofs" },
-                { value: "production", label: "Production Artwork" },
                 { value: "freight", label: "Freight" },
                 { value: "warehouse", label: "Warehouse" },
                 { value: "exceptions", label: "Exceptions" },
@@ -349,25 +329,6 @@ export function OrderDrawer({
                   <PlaceholderTab
                     title="Proofs are restricted"
                     description="You don't have permission to view proof groups."
-                  />
-                )}
-              </Tabs.Content>
-              <Tabs.Content value="production">
-                {canViewProductionArtwork || canViewExportBatches || canViewProductionQueue ? (
-                  <ProductionTab
-                    order={order}
-                    canCreateProductionArtwork={canCreateProductionArtwork}
-                    canUpdateProductionArtwork={canUpdateProductionArtwork}
-                    canCancelProductionArtwork={canCancelProductionArtwork}
-                    canCreateExportBatch={canCreateExportBatch}
-                    canDownloadExportBatches={canDownloadExportBatches}
-                    canReexportBatch={canReexportBatch}
-                    canViewProductionQueue={canViewProductionQueue}
-                  />
-                ) : (
-                  <PlaceholderTab
-                    title="Production artwork is restricted"
-                    description="You don't have permission to view production artwork or export batches."
                   />
                 )}
               </Tabs.Content>

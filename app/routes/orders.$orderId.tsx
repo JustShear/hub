@@ -75,17 +75,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     canViewProofResponses: hasPermission(staffUser, "proof_responses.view"),
     canOverrideProofResponses: hasPermission(staffUser, "proof_responses.override"),
     canManageProofReminders: hasPermission(staffUser, "proof_reminders.manage"),
-    canViewProductionArtwork: hasPermission(staffUser, "production_artwork.view"),
-    canCreateProductionArtwork:
-      hasPermission(staffUser, "production_artwork.create") &&
-      hasPermission(staffUser, "production_artwork.upload"),
-    canUpdateProductionArtwork: hasPermission(staffUser, "production_artwork.update"),
-    canCancelProductionArtwork: hasPermission(staffUser, "production_artwork.cancel"),
-    canCreateExportBatch: hasPermission(staffUser, "production_exports.create"),
-    canViewExportBatches: hasPermission(staffUser, "production_exports.view"),
-    canDownloadExportBatches: hasPermission(staffUser, "production_exports.download"),
-    canReexportBatch: hasPermission(staffUser, "production_exports.reexport"),
-    canViewProductionQueue: hasPermission(staffUser, "production_queue.view"),
     canViewFreight: hasPermission(staffUser, "freight_shipments.view"),
     canCreateFreight: hasPermission(staffUser, "freight_shipments.create"),
     canDownloadFreight: hasPermission(staffUser, "freight_shipments.download"),

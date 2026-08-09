@@ -40,6 +40,7 @@ function mockResultFor(overrides: { wasFulfilledJustNow?: boolean } = {}) {
     wasNewOrder: false,
     wasCancelledJustNow: false,
     wasFulfilledJustNow: false,
+    wasExportedForPrintJustNow: false,
     changeDescriptions: [],
     ...overrides,
   };

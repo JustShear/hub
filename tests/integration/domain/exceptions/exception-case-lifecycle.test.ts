@@ -193,7 +193,7 @@ describe("exception case lifecycle (integration)", () => {
       proofGroupId: null,
       staffUserId: staffUser.id,
     });
-    expect(result).toMatchObject({ outcome: "resolved", exportBatchId: null });
+    expect(result).toMatchObject({ outcome: "resolved" });
 
     const updatedCase = await db.exceptionCase.findUniqueOrThrow({
       where: { id: exceptionCaseId },
@@ -238,15 +238,12 @@ describe("exception case lifecycle (integration)", () => {
     expect(resolution.status).toBe("PENDING");
   });
 
-  it("resolves REPRINT by calling through to createExportBatch and producing a real new ExportBatch/ProductionJob", async () => {
+  it("resolves REPRINT as a record-only decision — no export batch or production job, same as DENIED", async () => {
     const { exceptionCaseId, order, staffUser } = await seedCase({ summary: "Defective print" });
-    const { proofGroupId } = await tracker.createReadyToExportGroup({
-      orderId: order.id,
-      shopId: order.shopId,
-      staffUserId: staffUser.id,
-    });
 
-    const missingProofGroup = await resolveExceptionCase({
+    // proofGroupId is accepted but no longer required or acted upon — the
+    // real export/production pipeline REPRINT used to trigger was removed.
+    const result = await resolveExceptionCase({
       shopId: order.shopId,
       exceptionCaseId,
       resolutionType: "REPRINT",
@@ -256,32 +253,12 @@ describe("exception case lifecycle (integration)", () => {
       proofGroupId: null,
       staffUserId: staffUser.id,
     });
-    expect(missingProofGroup).toMatchObject({ outcome: "rejected" });
+    expect(result).toMatchObject({ outcome: "resolved" });
 
-    const result = await resolveExceptionCase({
-      shopId: order.shopId,
-      exceptionCaseId,
-      resolutionType: "REPRINT",
-      reason: "Print quality defect",
-      amount: null,
-      currencyCode: null,
-      proofGroupId,
-      staffUserId: staffUser.id,
+    const updatedCase = await db.exceptionCase.findUniqueOrThrow({
+      where: { id: exceptionCaseId },
     });
-    expect(result.outcome).toBe("resolved");
-    if (result.outcome !== "resolved" || !result.exportBatchId) throw new Error("unreachable");
-    const exportBatchId = result.exportBatchId;
-
-    const exportBatch = await db.exportBatch.findUniqueOrThrow({
-      where: { id: exportBatchId },
-    });
-    expect(exportBatch.orderId).toBe(order.id);
-    expect(exportBatch.reexportReason).toBe("Print quality defect");
-
-    const productionJobCount = await db.productionJob.count({
-      where: { exportBatchId },
-    });
-    expect(productionJobCount).toBeGreaterThan(0);
+    expect(updatedCase.status).toBe("RESOLVED");
   });
 
   it("marks a resolution completed exactly once", async () => {

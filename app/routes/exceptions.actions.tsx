@@ -182,7 +182,6 @@ export async function action({ request }: Route.ActionArgs) {
       intent,
       ok: true,
       resolutionId: result.resolutionId,
-      exportBatchId: result.exportBatchId,
     };
   }
 

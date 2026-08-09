@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { ActorType, type ExceptionResolutionType } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import { isTerminalCaseStatus } from "~/domain/exceptions/case-transitions";
 import { validateResolutionInput } from "~/domain/exceptions/resolution-validation";
-import { createExportBatch } from "~/domain/production/create-export-batch.server";
 
 export interface ResolveExceptionCaseInput {
   shopId: string;
@@ -18,17 +16,18 @@ export interface ResolveExceptionCaseInput {
 }
 
 export type ResolveExceptionCaseResult =
-  | { outcome: "resolved"; resolutionId: string; exportBatchId: string | null }
+  | { outcome: "resolved"; resolutionId: string }
   | { outcome: "rejected"; reason: string; issues?: string[] };
 
 /**
  * The centrepiece of Milestone 14: records how an exception case was
- * resolved. CREDIT/REFUND are record-only (no Shopify money movement — staff
- * execute the actual refund/credit themselves); REPRINT/EXCHANGE both reuse
- * the *existing* createExportBatch/reExportBatch mechanism (Milestone 10) to
- * produce a real new ExportBatch -> ProductionJob/ProductionTask chain,
- * rather than a second, disconnected reprint-tracking mechanism. See
- * ADR-0010.
+ * resolved. All resolution types are record-only — CREDIT/REFUND (staff
+ * execute the actual refund/credit themselves) and REPRINT/EXCHANGE alike.
+ * REPRINT/EXCHANGE used to auto-create a real export batch/production job
+ * (Milestone 10/11); that mechanism was removed (see
+ * docs/decisions on removing Production Artwork), so for now these two
+ * types just record the decision, same as DENIED — a real reprint/exchange
+ * workflow is deferred until this flow is actually tested. See ADR-0010.
  */
 export async function resolveExceptionCase(
   input: ResolveExceptionCaseInput,
@@ -57,34 +56,6 @@ export async function resolveExceptionCase(
   }
 
   const trimmedReason = input.reason.trim();
-  let exportBatchId: string | null = null;
-
-  // Deliberately called *before* the resolution/case-update transaction
-  // below, never nested inside it — createExportBatch does its own file
-  // I/O and DB transaction internally, and this codebase never holds a
-  // transaction open across external work (same principle as freight's
-  // reserve-then-finalise shape). A retry after this call succeeds but
-  // before the case is marked RESOLVED could in principle create a second
-  // export batch — an accepted, narrow risk window, same class as freight's
-  // own documented one.
-  if (input.resolutionType === "REPRINT" || input.resolutionType === "EXCHANGE") {
-    if (!input.proofGroupId) {
-      return { outcome: "rejected", reason: "A proof group is required." };
-    }
-    const exportResult = await createExportBatch({
-      shopId: input.shopId,
-      orderId: current.orderId,
-      proofGroupIds: [input.proofGroupId],
-      destination: null,
-      staffUserId: input.staffUserId,
-      idempotencyKey: randomUUID(),
-      reexportReason: trimmedReason,
-    });
-    if (exportResult.outcome === "rejected") {
-      return { outcome: "rejected", reason: exportResult.reason, issues: exportResult.issues };
-    }
-    exportBatchId = exportResult.exportBatchId;
-  }
 
   const resolutionId = await db.$transaction(async (tx) => {
     const created = await tx.exceptionCaseResolution.create({
@@ -94,7 +65,6 @@ export async function resolveExceptionCase(
         reason: trimmedReason,
         amount: input.amount,
         currencyCode: input.currencyCode,
-        exportBatchId,
         decidedByStaffId: input.staffUserId,
       },
     });
@@ -119,7 +89,6 @@ export async function resolveExceptionCase(
           resolutionType: input.resolutionType,
           reason: trimmedReason,
           amount: input.amount,
-          exportBatchId,
         },
         actorStaffId: input.staffUserId,
         actorType: ActorType.STAFF,
@@ -129,5 +98,5 @@ export async function resolveExceptionCase(
     return created.id;
   });
 
-  return { outcome: "resolved", resolutionId, exportBatchId };
+  return { outcome: "resolved", resolutionId };
 }

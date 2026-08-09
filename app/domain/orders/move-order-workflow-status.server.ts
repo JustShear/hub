@@ -3,6 +3,7 @@ import { db } from "~/lib/db.server";
 import { canMoveOrderToColumn } from "~/domain/orders/workflow-transitions";
 import { getBoardColumn, type BoardColumnKey } from "~/domain/orders/board-columns";
 import { syncOrderLifecycleTag } from "~/domain/orders/sync-order-lifecycle-tag.server";
+import { createWarehousePickJobForOrder } from "~/domain/warehouse/create-warehouse-pick-job.server";
 
 export type MoveOrderResult =
   | { outcome: "moved"; workflowStatus: OrderStatus }
@@ -73,6 +74,14 @@ export async function moveOrderWorkflowStatus(input: MoveOrderInput): Promise<Mo
     // rejection is worth surfacing as a failed move.
     if (tagResult.outcome === "rejected") {
       return { outcome: "rejected", reason: tagResult.reason };
+    }
+
+    if (dropAction.addTag === "Exported for Print") {
+      await createWarehousePickJobForOrder(db, {
+        shopId: input.shopId,
+        orderId: input.orderId,
+        actorStaffId: input.staffUserId,
+      });
     }
 
     await db.activityEvent.create({

@@ -7,7 +7,6 @@ import type {
   IntegrationFailureStatus,
   IntegrationType,
   NoteVisibility,
-  OrderProductionSummary,
   OrderProofSummary,
   OrderStatus,
   Priority,
@@ -26,14 +25,6 @@ import {
   loadProofRequestsForOrder,
   type OrderDetailProofRequest,
 } from "~/domain/proofs/proof-request-query.server";
-import {
-  loadExportBatchesForOrder,
-  type OrderDetailExportBatch,
-} from "~/domain/production/export-batch-query.server";
-import {
-  loadProductionJobsForOrder,
-  type OrderDetailProductionJob,
-} from "~/domain/production/production-job-order-query.server";
 import {
   loadFreightShipmentsForOrder,
   type OrderDetailFreightShipment,
@@ -187,7 +178,6 @@ export interface OrderDetail {
   workflowStatus: OrderStatus;
   workflowStatusChangedAt: string;
   proofSummary: OrderProofSummary;
-  productionSummary: OrderProductionSummary;
   priority: Priority;
   createdAt: string;
   updatedAt: string;
@@ -202,8 +192,6 @@ export interface OrderDetail {
   integrationIssues: OrderDetailIntegrationIssue[];
   proofGroups: OrderDetailProofGroup[];
   proofRequests: OrderDetailProofRequest[];
-  exportBatches: OrderDetailExportBatch[];
-  productionJobs: OrderDetailProductionJob[];
   freightShipments: OrderDetailFreightShipment[];
   warehousePickJob: OrderDetailWarehousePickJob | null;
   exceptionCases: OrderDetailExceptionCase[];
@@ -252,8 +240,6 @@ export async function loadOrderDetail(params: {
     activity,
     proofGroups,
     proofRequests,
-    exportBatches,
-    productionJobs,
     freightShipments,
     warehousePickJob,
     exceptionCases,
@@ -271,8 +257,6 @@ export async function loadOrderDetail(params: {
     }),
     loadProofGroupsForOrder({ shopId: params.shopId, orderId: order.id }),
     loadProofRequestsForOrder({ shopId: params.shopId, orderId: order.id }),
-    loadExportBatchesForOrder({ shopId: params.shopId, orderId: order.id }),
-    loadProductionJobsForOrder({ shopId: params.shopId, orderId: order.id }),
     loadFreightShipmentsForOrder({ shopId: params.shopId, orderId: order.id }),
     loadWarehousePickJobForOrder({ shopId: params.shopId, orderId: order.id }),
     loadExceptionCasesForOrder({ shopId: params.shopId, orderId: order.id }),
@@ -324,7 +308,6 @@ export async function loadOrderDetail(params: {
     workflowStatus: order.workflowStatus,
     workflowStatusChangedAt: order.workflowStatusChangedAt.toISOString(),
     proofSummary: order.proofSummary,
-    productionSummary: order.productionSummary,
     priority: order.priority,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
@@ -433,8 +416,6 @@ export async function loadOrderDetail(params: {
     })),
     proofGroups,
     proofRequests,
-    exportBatches,
-    productionJobs,
     freightShipments,
     warehousePickJob,
     exceptionCases,

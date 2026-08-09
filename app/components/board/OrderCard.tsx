@@ -9,13 +9,10 @@ import {
   AlertOctagon,
   CalendarClock,
   Clock,
-  FileWarning,
-  Factory,
   GripVertical,
   MailWarning,
   MessageSquareWarning,
   PackageSearch,
-  RefreshCw,
   ShieldAlert,
   Truck,
 } from "lucide-react";
@@ -23,7 +20,6 @@ import { Link, useFetcher, useLocation } from "react-router";
 import type { BoardCard } from "~/domain/orders/board-query.server";
 import type { BoardColumnKey } from "~/domain/orders/board-columns";
 import { PROOF_SUMMARY_LABELS } from "~/domain/orders/labels";
-import { ORDER_PRODUCTION_SUMMARY_LABELS } from "~/domain/production/labels";
 import { formatAuDate } from "~/lib/dates";
 import {
   DueDateIndicator,
@@ -76,9 +72,6 @@ export function OrderCard({
     card.hasCustomerResponseAlert ||
     card.isApprovedNotExported ||
     card.hasFailedProofDelivery ||
-    card.hasMissingProductionArtwork ||
-    card.hasReexportRequired ||
-    card.hasOpenProductionIssue ||
     card.workflowStatus === "FULFILLED" ||
     card.hasActiveFreightShipment ||
     card.workflowStatus === "READY_TO_PACK" ||
@@ -170,15 +163,6 @@ export function OrderCard({
         </p>
       ) : null}
 
-      {card.productionSummary !== "NOT_READY" ? (
-        <p className="text-xs text-muted">
-          <Link to="/production" className="hover:underline">
-            Production: {ORDER_PRODUCTION_SUMMARY_LABELS[card.productionSummary]}
-          </Link>
-          {card.productionAssignedStaffName ? ` · ${card.productionAssignedStaffName}` : ""}
-        </p>
-      ) : null}
-
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <DueDateIndicator dueDate={card.nearestDueDate} />
         <span className="text-muted">
@@ -202,24 +186,6 @@ export function OrderCard({
           ) : null}
           {card.hasFailedProofDelivery ? (
             <IndicatorChip icon={MailWarning} label="Proof email failed to send" tone="warning" />
-          ) : null}
-          {card.hasMissingProductionArtwork ? (
-            <IndicatorChip
-              icon={FileWarning}
-              label="Production artwork not prepared"
-              tone="warning"
-            />
-          ) : null}
-          {card.hasReexportRequired ? (
-            <IndicatorChip icon={RefreshCw} label="Re-export required" tone="warning" />
-          ) : null}
-          {card.hasOpenProductionIssue ? (
-            <Link
-              to="/production"
-              className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
-            >
-              <IndicatorChip icon={Factory} label="Production issue" tone="error" />
-            </Link>
           ) : null}
           {card.hasActiveFreightShipment ? (
             <IndicatorChip icon={Truck} label="Freight label created" tone="neutral" />
@@ -264,7 +230,6 @@ export function OrderCard({
       {card.workflowStatus === "READY_TO_PACK" ? (
         <PackCardFreightControls
           orderId={card.id}
-          productionSummary={card.productionSummary}
           isCancelled={card.isCancelled}
           existingShipment={card.freightShipment}
           canCreate={canCreateFreightShipments}

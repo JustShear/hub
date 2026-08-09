@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { OrderProductionSummary, OrderStatus } from "@prisma/client";
+import type { OrderStatus } from "@prisma/client";
 import { db } from "~/lib/db.server";
 
 const VALID_SHIPPING_ADDRESS = {
@@ -58,7 +58,6 @@ export function createFreightTestTracker() {
 
   async function createOrder(
     overrides: {
-      productionSummary?: OrderProductionSummary;
       shippingAddress?: unknown;
       cancelledAt?: Date | null;
       workflowStatus?: OrderStatus;
@@ -75,7 +74,6 @@ export function createFreightTestTracker() {
         rawPayload: {},
         customerEmail: `customer-${randomUUID()}@example.test`,
         customerName: "Test Customer",
-        productionSummary: overrides.productionSummary ?? "COMPLETE",
         shippingAddress:
           overrides.shippingAddress === undefined
             ? VALID_SHIPPING_ADDRESS

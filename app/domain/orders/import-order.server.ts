@@ -8,6 +8,7 @@ import {
 import { parseOptisLineProperties } from "~/domain/orders/optis-property-parser";
 import { selectLineImage } from "~/domain/orders/select-line-image";
 import { isSpecialStatus } from "~/domain/orders/board-columns";
+import { createWarehousePickJobForOrder } from "~/domain/warehouse/create-warehouse-pick-job.server";
 
 export class OrderNotFoundError extends Error {
   constructor(shopifyOrderGid: string) {
@@ -21,6 +22,7 @@ export interface ImportShopifyOrderResult {
   wasNewOrder: boolean;
   wasCancelledJustNow: boolean;
   wasFulfilledJustNow: boolean;
+  wasExportedForPrintJustNow: boolean;
   changeDescriptions: string[];
 }
 
@@ -129,6 +131,16 @@ export async function importShopifyOrder(
     !wasCancelledJustNow &&
     rawOrder.displayFulfillmentStatus === "FULFILLED" &&
     !isSpecialStatus(currentWorkflowStatus);
+
+  // Same "detect the transition before the upsert" shape as
+  // wasFulfilledJustNow above — this is the sync-triggered half of the
+  // warehouse pick-job trigger (the other half is the manual drag-to-column
+  // path in move-order-workflow-status.server.ts). Whichever fires first
+  // wins; createWarehousePickJobForOrder is idempotent, so no risk from both
+  // firing for the same order.
+  const wasExportedForPrintJustNow =
+    !existingOrder?.tags.includes("Exported for Print") &&
+    rawOrder.tags.includes("Exported for Print");
 
   const rawChangeDescriptions = existingOrder ? detectMaterialChanges(existingOrder, rawOrder) : [];
   // Superseded by the dedicated ORDER_FULFILLED_IN_SHOPIFY event below —
@@ -331,10 +343,25 @@ export async function importShopifyOrder(
         });
       }
 
+      if (wasExportedForPrintJustNow) {
+        await createWarehousePickJobForOrder(tx, {
+          shopId,
+          orderId: order.id,
+          actorStaffId: null,
+        });
+      }
+
       return order.id;
     },
     { timeout: 15_000 },
   );
 
-  return { orderId, wasNewOrder, wasCancelledJustNow, wasFulfilledJustNow, changeDescriptions };
+  return {
+    orderId,
+    wasNewOrder,
+    wasCancelledJustNow,
+    wasFulfilledJustNow,
+    wasExportedForPrintJustNow,
+    changeDescriptions,
+  };
 }

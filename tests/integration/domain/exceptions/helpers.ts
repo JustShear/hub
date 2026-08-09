@@ -1,17 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { db } from "~/lib/db.server";
-import { createProductionArtwork } from "~/domain/production/create-production-artwork.server";
-import { setProductionArtworkOrderLines } from "~/domain/production/allocate-production-artwork-order-lines.server";
-import { markProductionArtworkReady } from "~/domain/production/mark-production-artwork-ready.server";
-import { createProductionTestTracker, PDF_BYTES } from "../production/helpers";
 
-/**
- * Shared fixture helpers for Milestone 14 (exception cases) integration
- * tests — wraps the Milestone 10 production tracker (order/staff/approved-
- * proof-group creation) since REPRINT/EXCHANGE resolutions call the same
- * createExportBatch machinery those tests already exercise.
- */
+/** Shared fixture helpers for Milestone 14 (exception cases) integration tests. */
 export function createExceptionTestTracker() {
-  const productionTracker = createProductionTestTracker();
+  const orderIds: string[] = [];
+  const staffUserIds: string[] = [];
   const exceptionCaseIds: string[] = [];
 
   async function cleanup() {
@@ -27,50 +20,67 @@ export function createExceptionTestTracker() {
       });
       await db.exceptionCase.deleteMany({ where: { id: { in: exceptionCaseIds } } });
     }
-    await productionTracker.cleanup();
+    if (orderIds.length > 0) {
+      const lineIds = (
+        await db.shopifyOrderLine.findMany({
+          where: { orderId: { in: orderIds } },
+          select: { id: true },
+        })
+      ).map((l) => l.id);
+      if (lineIds.length > 0) {
+        await db.shopifyOrderLine.deleteMany({ where: { id: { in: lineIds } } });
+      }
+      await db.activityEvent.deleteMany({ where: { orderId: { in: orderIds } } });
+      await db.shopifyOrder.deleteMany({ where: { id: { in: orderIds } } });
+    }
+    if (staffUserIds.length > 0) {
+      await db.notification.deleteMany({ where: { staffUserId: { in: staffUserIds } } });
+      await db.staffUser.deleteMany({ where: { id: { in: staffUserIds } } });
+    }
   }
 
-  /** Creates a proof group with genuine production artwork ready for export — the precondition createExportBatch requires. */
-  async function createReadyToExportGroup(params: {
-    orderId: string;
-    shopId: string;
-    staffUserId: string;
-  }) {
-    const line = await productionTracker.createOrderLine(params.orderId);
-    const approved = await productionTracker.createApprovedGroup({
-      orderId: params.orderId,
-      shopId: params.shopId,
-      staffUserId: params.staffUserId,
-      orderLineId: line.id,
+  async function createOrder(overrides: { cancelledAt?: Date } = {}) {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#exception-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        customerEmail: `customer-${randomUUID()}@example.test`,
+        customerName: "Test Customer",
+        cancelledAt: overrides.cancelledAt,
+      },
     });
-    const artwork = await createProductionArtwork({
-      shopId: params.shopId,
-      proofGroupId: approved.proofGroupId,
-      fileBuffer: PDF_BYTES,
-      originalFilename: "artwork.pdf",
-      decorationMethod: null,
-      placement: "Left chest",
-      productionMetadata: null,
-      staffUserId: params.staffUserId,
-      idempotencyKey: null,
-    });
-    if (artwork.outcome !== "created") throw new Error("setup failed: createProductionArtwork");
-    const allocation = await setProductionArtworkOrderLines({
-      shopId: params.shopId,
-      productionArtworkId: artwork.productionArtworkId,
-      allocations: [{ orderLineId: line.id, quantity: line.quantity }],
-      staffUserId: params.staffUserId,
-    });
-    if (allocation.outcome !== "set")
-      throw new Error("setup failed: setProductionArtworkOrderLines");
-    const ready = await markProductionArtworkReady({
-      shopId: params.shopId,
-      productionArtworkId: artwork.productionArtworkId,
-      staffUserId: params.staffUserId,
-    });
-    if (ready.outcome !== "ready") throw new Error("setup failed: markProductionArtworkReady");
+    orderIds.push(order.id);
+    return order;
+  }
 
-    return { proofGroupId: approved.proofGroupId, line };
+  async function createOrderLine(orderId: string, quantity = 10) {
+    return db.shopifyOrderLine.create({
+      data: {
+        orderId,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Test Product",
+        quantity,
+      },
+    });
+  }
+
+  async function createStaffUser() {
+    const shop = await db.shop.findFirstOrThrow();
+    const staffUser = await db.staffUser.create({
+      data: {
+        shopId: shop.id,
+        email: `test-${randomUUID()}@example.com`,
+        name: "Test Staff",
+        passwordHash: "irrelevant",
+      },
+    });
+    staffUserIds.push(staffUser.id);
+    return staffUser;
   }
 
   function trackExceptionCase(exceptionCaseId: string) {
@@ -79,10 +89,9 @@ export function createExceptionTestTracker() {
 
   return {
     cleanup,
-    createOrder: productionTracker.createOrder,
-    createOrderLine: productionTracker.createOrderLine,
-    createStaffUser: productionTracker.createStaffUser,
-    createReadyToExportGroup,
+    createOrder,
+    createOrderLine,
+    createStaffUser,
     trackExceptionCase,
   };
 }

@@ -105,9 +105,9 @@ const RULES: RawColumnRule[] = [
     purpose: "Approved artwork has been exported for production.",
     // Interactive as well as tag-driven: still matches purely off the real
     // Shopify tag (so an order tagged "Exported for Print" directly in
-    // Shopify — or automatically, via createExportBatch — always lands
-    // here regardless of source), but a manual drop now also syncs that
-    // same tag to Shopify, rather than being read-only like the other
+    // Shopify always lands here regardless of source), but a manual drop
+    // now also syncs that same tag to Shopify, rather than being read-only
+    // like the other
     // tag-driven columns. Deliberately add-only (no removeTags) — the
     // shop wants prior lifecycle tags left on the order in Shopify; this
     // column's own match priority already outranks proof_sent/rejected/

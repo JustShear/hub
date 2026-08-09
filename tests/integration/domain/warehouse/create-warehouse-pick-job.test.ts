@@ -7,12 +7,12 @@ describe("warehouse pick job auto-creation (integration)", () => {
   const tracker = createWarehouseTestTracker();
   afterAll(tracker.cleanup);
 
-  it("creates a WarehousePickJob with one item per order line the moment production genuinely completes", async () => {
+  it("creates a WarehousePickJob with one item per order line", async () => {
     const order = await tracker.createOrder();
     const staffUser = await tracker.createStaffUser();
     const line = await tracker.createOrderLine(order.id, 12);
 
-    const pickJob = await tracker.completeOrderProduction({
+    const pickJob = await tracker.createPickJobForOrder({
       shopId: order.shopId,
       orderId: order.id,
       orderLineId: line.id,
@@ -28,7 +28,6 @@ describe("warehouse pick job auto-creation (integration)", () => {
     expect(items[0]).toMatchObject({ requiredQuantity: 12, pickedQuantity: 0, status: "PENDING" });
 
     const reloadedOrder = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
-    expect(reloadedOrder.productionSummary).toBe("COMPLETE");
     expect(reloadedOrder.warehousePickSummary).toBe("NOT_STARTED");
   });
 
@@ -37,7 +36,7 @@ describe("warehouse pick job auto-creation (integration)", () => {
     const staffUser = await tracker.createStaffUser();
     const line = await tracker.createOrderLine(order.id, 5);
 
-    const firstJob = await tracker.completeOrderProduction({
+    const firstJob = await tracker.createPickJobForOrder({
       shopId: order.shopId,
       orderId: order.id,
       orderLineId: line.id,

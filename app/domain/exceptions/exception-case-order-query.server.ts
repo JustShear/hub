@@ -16,7 +16,6 @@ export interface OrderDetailExceptionResolution {
   reason: string;
   amount: string | null;
   currencyCode: string | null;
-  exportBatchId: string | null;
   decidedByStaffName: string;
   decidedAt: string;
   completedByStaffName: string | null;
@@ -93,7 +92,6 @@ export async function loadExceptionCasesForOrder(params: {
       reason: r.reason,
       amount: r.amount?.toString() ?? null,
       currencyCode: r.currencyCode,
-      exportBatchId: r.exportBatchId,
       decidedByStaffName: staffNames.get(r.decidedByStaffId) ?? "Unknown staff member",
       decidedAt: r.decidedAt.toISOString(),
       completedByStaffName: r.completedByStaffId

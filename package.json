@@ -21,7 +21,6 @@
     "db:studio": "prisma studio",
     "db:seed": "prisma db seed",
     "db:seed:board-demo": "tsx scripts/seed-board-demo.ts",
-    "db:seed:production-demo": "tsx scripts/seed-production-demo.ts",
     "db:seed:warehouse-demo": "tsx scripts/seed-warehouse-demo.ts",
     "db:reset-admin-password": "tsx scripts/reset-admin-password.ts",
     "db:create-staff": "tsx scripts/create-staff-user.ts",
@@ -31,7 +30,8 @@
     "import:open-orders": "tsx scripts/import-open-orders.ts",
     "register:webhooks": "tsx scripts/register-webhooks.ts",
     "backfill:lifecycle-tags": "tsx scripts/backfill-lifecycle-tags.ts",
-    "backfill:fulfillment-sync": "tsx scripts/backfill-fulfillment-sync.ts"
+    "backfill:fulfillment-sync": "tsx scripts/backfill-fulfillment-sync.ts",
+    "backfill:warehouse-pick-jobs": "tsx scripts/backfill-warehouse-pick-jobs.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
