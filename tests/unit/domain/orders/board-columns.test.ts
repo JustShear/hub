@@ -123,8 +123,24 @@ describe("getBoardColumnKey", () => {
       );
     });
 
-    it("proof_sent outranks emailed", () => {
-      expect(getBoardColumnKey(order({ tags: ["emailed", "proof_sent"] }))).toBe("proof_sent");
+    it('emailed outranks proof_rejected — dragging into Waiting on Customer from Changes Requested always shows there, since the add-only "emailed" tag never removes "proof_rejected"', () => {
+      // Regression test: without this, the real Shopify tag write succeeded
+      // but the card never visibly left Changes Requested.
+      expect(getBoardColumnKey(order({ tags: ["proof_rejected", "emailed"] }))).toBe(
+        "waiting_on_customer",
+      );
+    });
+
+    it("emailed outranks proof_sent — same fix, for dragging from Proof Sent", () => {
+      expect(getBoardColumnKey(order({ tags: ["proof_sent", "emailed"] }))).toBe(
+        "waiting_on_customer",
+      );
+    });
+
+    it("proof_accepted still outranks emailed — a stale emailed tag never masks a genuine approval", () => {
+      expect(getBoardColumnKey(order({ tags: ["emailed", "proof_accepted"] }))).toBe(
+        "proof_approved",
+      );
     });
 
     it("emailed outranks p", () => {

@@ -154,26 +154,6 @@ const RULES: RawColumnRule[] = [
     ownWhere: { tags: { has: "proof_accepted" } },
   },
   {
-    key: "changes_requested",
-    label: "Changes Requested",
-    purpose: "Customer has requested a revision.",
-    interactive: false,
-    readOnlyReason: "Set automatically when a customer response is recorded — not manually draggable.",
-    matchPriority: 5,
-    ownMatches: (order) => order.tags.includes("proof_rejected"),
-    ownWhere: { tags: { has: "proof_rejected" } },
-  },
-  {
-    key: "proof_sent",
-    label: "Proof Sent",
-    purpose: "Customer response is pending.",
-    interactive: false,
-    readOnlyReason: "Set automatically when Just Shear sends a proof request — not manually draggable.",
-    matchPriority: 6,
-    ownMatches: (order) => order.tags.includes("proof_sent"),
-    ownWhere: { tags: { has: "proof_sent" } },
-  },
-  {
     key: "waiting_on_customer",
     label: "Waiting on Customer",
     purpose: 'Staff have contacted the customer and are waiting on a reply (tagged "emailed" in Shopify).',
@@ -183,14 +163,41 @@ const RULES: RawColumnRule[] = [
     // now also syncs that tag, for staff who've just contacted the customer
     // outside of Shopify (a phone call, in person) and want the board to
     // reflect that immediately rather than waiting on a separate Shopify
-    // tagging step. Add-only (no removeTags) — this column's match priority
-    // already outranks order_sheet_printed/proof_being_prepared/new, so
-    // leftover lower-priority tags never affect placement.
+    // tagging step. Add-only (no removeTags) — deliberately outranks
+    // changes_requested and proof_sent (the two states staff actually drag
+    // *from* when following up: "addressed their changes and re-emailed
+    // them" or "chased them by phone instead of email"), since neither
+    // "proof_rejected" nor "proof_sent" gets removed by this add-only drop.
+    // Without this, dragging from either of those columns wrote the real
+    // Shopify tag but the card never visibly moved — the same class of bug
+    // as Pre-Order's match-priority fix below. Still outranked by
+    // proof_approved/pre_order/exported_for_print/pack — a stale "emailed"
+    // tag should never mask a genuinely more-advanced state.
     interactive: true,
     dropAction: { type: "shopifyTag", addTag: "emailed", removeTags: [] },
-    matchPriority: 7,
+    matchPriority: 5,
     ownMatches: (order) => order.tags.includes("emailed"),
     ownWhere: { tags: { has: "emailed" } },
+  },
+  {
+    key: "changes_requested",
+    label: "Changes Requested",
+    purpose: "Customer has requested a revision.",
+    interactive: false,
+    readOnlyReason: "Set automatically when a customer response is recorded — not manually draggable.",
+    matchPriority: 6,
+    ownMatches: (order) => order.tags.includes("proof_rejected"),
+    ownWhere: { tags: { has: "proof_rejected" } },
+  },
+  {
+    key: "proof_sent",
+    label: "Proof Sent",
+    purpose: "Customer response is pending.",
+    interactive: false,
+    readOnlyReason: "Set automatically when Just Shear sends a proof request — not manually draggable.",
+    matchPriority: 7,
+    ownMatches: (order) => order.tags.includes("proof_sent"),
+    ownWhere: { tags: { has: "proof_sent" } },
   },
   {
     key: "order_sheet_printed",
