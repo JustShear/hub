@@ -183,6 +183,8 @@ export interface BoardCard {
   hasOpenExceptionCase: boolean;
   /** At least one line has a customer-uploaded file (OPTIS/Shopify FILE_UPLOAD property) linked via CustomerArtworkAsset. */
   hasCustomerUpload: boolean;
+  /** At least one line's Shopify property name/value contains a decoration marker ("_bssIntegrate", "Embroidery", "Printing", or "Printed"). */
+  hasDecorationLineMarker: boolean;
   /** Null only for special-view (on hold / cancelled / archived) cards. */
   columnKey: BoardColumnKey | null;
   lines: BoardCardProductLine[];
@@ -284,6 +286,7 @@ function toBoardCard(
   warehousePickIndicators: { openIssueOrderIds: Set<string>; shortItemOrderIds: Set<string> },
   openExceptionCaseOrderIds: Set<string>,
   customerUploadOrderIds: Set<string>,
+  decorationLineMarkerOrderIds: Set<string>,
 ): BoardCard {
   return {
     id: row.id,
@@ -316,6 +319,7 @@ function toBoardCard(
     hasShortPickItems: warehousePickIndicators.shortItemOrderIds.has(row.id),
     hasOpenExceptionCase: openExceptionCaseOrderIds.has(row.id),
     hasCustomerUpload: customerUploadOrderIds.has(row.id),
+    hasDecorationLineMarker: decorationLineMarkerOrderIds.has(row.id),
     columnKey: getBoardColumnKey(row),
     lines: row.lines.map((line) => ({
       id: line.id,
@@ -494,6 +498,28 @@ async function loadOrderIdsWithCustomerUpload(orderIds: string[]): Promise<Set<s
   return new Set(links.map((l) => l.orderLine.orderId));
 }
 
+// Shop-requested markers indicating a line needs decoration (embroidery/print)
+// attention — checked as a case-insensitive substring against both the raw
+// Shopify line-property name and value, since we don't know in advance which
+// side a given integration puts the marker on (e.g. BSS's own "_bssIntegrate"
+// property name vs. an OPTIS-style "Embroidery"/"Printing" value).
+const DECORATION_LINE_MARKERS = ["_bssIntegrate", "Embroidery", "Printing", "Printed"];
+
+async function loadOrderIdsWithDecorationLineMarker(orderIds: string[]): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const properties = await db.shopifyLineProperty.findMany({
+    where: {
+      orderLine: { orderId: { in: orderIds } },
+      OR: DECORATION_LINE_MARKERS.flatMap((marker) => [
+        { name: { contains: marker, mode: "insensitive" as const } },
+        { value: { contains: marker, mode: "insensitive" as const } },
+      ]),
+    },
+    select: { orderLine: { select: { orderId: true } } },
+  });
+  return new Set(properties.map((p) => p.orderLine.orderId));
+}
+
 async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   blockedProofGroupIds: Set<string>;
   staffNames: Map<string, string>;
@@ -502,6 +528,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   warehousePickIndicators: { openIssueOrderIds: Set<string>; shortItemOrderIds: Set<string> };
   openExceptionCaseOrderIds: Set<string>;
   customerUploadOrderIds: Set<string>;
+  decorationLineMarkerOrderIds: Set<string>;
 }> {
   const proofGroupIds = rows.flatMap((r) => r.proofGroups.map((g) => g.id));
   const staffIds = rows.flatMap((r) => r.proofGroups.map((g) => g.assignedStaffId));
@@ -514,6 +541,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     warehousePickIndicators,
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
+    decorationLineMarkerOrderIds,
   ] = await Promise.all([
     loadBlockedProofGroupIds(proofGroupIds),
     resolveStaffNames(staffIds),
@@ -522,6 +550,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     loadWarehousePickIndicatorsByOrderId(orderIds),
     loadOpenExceptionCaseOrderIds(orderIds),
     loadOrderIdsWithCustomerUpload(orderIds),
+    loadOrderIdsWithDecorationLineMarker(orderIds),
   ]);
   return {
     blockedProofGroupIds,
@@ -531,6 +560,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     warehousePickIndicators,
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
+    decorationLineMarkerOrderIds,
   };
 }
 
@@ -724,6 +754,7 @@ export async function loadBoardColumns(params: {
     warehousePickIndicators,
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
+    decorationLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -736,6 +767,7 @@ export async function loadBoardColumns(params: {
       warehousePickIndicators,
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
+      decorationLineMarkerOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -790,6 +822,7 @@ export async function loadMoreForColumn(params: {
       warehousePickIndicators,
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
+      decorationLineMarkerOrderIds,
     } = await loadProofGroupBoardContext(rows);
     let cards = rows.map((row) =>
       toBoardCard(
@@ -802,6 +835,7 @@ export async function loadMoreForColumn(params: {
         warehousePickIndicators,
         openExceptionCaseOrderIds,
         customerUploadOrderIds,
+        decorationLineMarkerOrderIds,
       ),
     );
     cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -828,6 +862,7 @@ export async function loadMoreForColumn(params: {
     warehousePickIndicators,
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
+    decorationLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -840,6 +875,7 @@ export async function loadMoreForColumn(params: {
       warehousePickIndicators,
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
+      decorationLineMarkerOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -878,6 +914,7 @@ export async function loadSpecialView(params: {
     warehousePickIndicators,
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
+    decorationLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   const cards = rows.map((row) =>
     toBoardCard(
@@ -890,6 +927,7 @@ export async function loadSpecialView(params: {
       warehousePickIndicators,
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
+      decorationLineMarkerOrderIds,
     ),
   );
   const last = rows.at(-1);

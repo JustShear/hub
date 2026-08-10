@@ -34,6 +34,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasShortPickItems: false,
     hasOpenExceptionCase: false,
     hasCustomerUpload: false,
+    hasDecorationLineMarker: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,
@@ -262,6 +263,13 @@ describe("OrderCard", () => {
   it("also tints the card light pink when manually marked as needing printing", () => {
     renderCard(makeCard({ orderNumber: "#1004", needsPrinting: true }), true);
     expect(screen.getByRole("link", { name: "#1004" }).closest("div.rounded-lg")).toHaveClass(
+      "bg-accent-pink",
+    );
+  });
+
+  it("also tints the card light pink when a line carries a decoration marker (_bssIntegrate/Embroidery/Printing/Printed)", () => {
+    renderCard(makeCard({ orderNumber: "#1005", hasDecorationLineMarker: true }), true);
+    expect(screen.getByRole("link", { name: "#1005" }).closest("div.rounded-lg")).toHaveClass(
       "bg-accent-pink",
     );
   });

@@ -399,4 +399,58 @@ describe("loadBoardColumns (integration)", () => {
     await db.artworkOrderLineLink.delete({ where: { id: link.id } });
     await db.customerArtworkAsset.delete({ where: { id: asset.id } });
   });
+
+  it("reports hasDecorationLineMarker for an order whose line carries a decoration marker property, not a plain order", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const markedOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(markedOrder.id);
+    const markedLine = await db.shopifyOrderLine.create({
+      data: {
+        orderId: markedOrder.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Personalised Polo",
+        quantity: 1,
+      },
+    });
+    const property = await db.shopifyLineProperty.create({
+      data: { orderLineId: markedLine.id, name: "_bssIntegrate", value: "true" },
+    });
+
+    const plainOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(plainOrder.id);
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const cards = result.columns.flatMap((c) => c.cards);
+    expect(cards.find((c) => c.id === markedOrder.id)?.hasDecorationLineMarker).toBe(true);
+    expect(cards.find((c) => c.id === plainOrder.id)?.hasDecorationLineMarker).toBe(false);
+
+    await db.shopifyLineProperty.delete({ where: { id: property.id } });
+  });
 });
