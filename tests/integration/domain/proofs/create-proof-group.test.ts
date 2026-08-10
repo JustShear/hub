@@ -40,6 +40,34 @@ describe("createProofGroup (integration)", () => {
     expect(await db.activityEvent.count({ where: { orderId: order.id } })).toBe(1);
   });
 
+  it("auto-generates a name from decoration method and placement when left blank, rather than rejecting", async () => {
+    const order = await tracker.createOrder();
+    const staffUser = await tracker.createStaffUser();
+
+    const result = await createProofGroup({
+      shopId: order.shopId,
+      orderId: order.id,
+      name: "   ",
+      decorationMethod: "EMBROIDERY",
+      placement: "Left chest",
+      description: null,
+      requirement: "UNDETERMINED",
+      noProofReason: null,
+      noProofReasonNote: null,
+      orderLineIds: [],
+      assetIds: [],
+      assignedStaffId: null,
+      dueDate: null,
+      priority: null,
+      staffUserId: staffUser.id,
+    });
+
+    expect(result.outcome).toBe("created");
+    if (result.outcome !== "created") return;
+    const group = await db.proofGroup.findUniqueOrThrow({ where: { id: result.proofGroupId } });
+    expect(group.name).toBe("Embroidery — Left chest");
+  });
+
   it("never infers NO_PROOF_REQUIRED or REQUIRED — only what the caller explicitly requests", async () => {
     const order = await tracker.createOrder();
     const staffUser = await tracker.createStaffUser();

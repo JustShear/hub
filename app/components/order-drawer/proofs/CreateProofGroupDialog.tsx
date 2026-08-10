@@ -63,6 +63,26 @@ export function CreateProofGroupDialog({
   const [requirement, setRequirement] = useState<ProofRequirementValue>("UNDETERMINED");
   const [noProofReason, setNoProofReason] = useState<NoProofReason | "">("");
   const [decorationMethod, setDecorationMethod] = useState<DecorationMethod>("EMBROIDERY");
+  const [selectedLineIds, setSelectedLineIds] = useState<Set<string>>(new Set());
+
+  const allLinesSelected =
+    lineOptions.length > 0 && lineOptions.every((line) => selectedLineIds.has(line.id));
+
+  function toggleLine(lineId: string) {
+    setSelectedLineIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineId)) {
+        next.delete(lineId);
+      } else {
+        next.add(lineId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllLines() {
+    setSelectedLineIds(allLinesSelected ? new Set() : new Set(lineOptions.map((line) => line.id)));
+  }
 
   const response = fetcher.data;
 
@@ -74,6 +94,7 @@ export function CreateProofGroupDialog({
       setRequirement("UNDETERMINED");
       setNoProofReason("");
       setDecorationMethod("EMBROIDERY");
+      setSelectedLineIds(new Set());
     }
   }, [fetcher.state, response]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -114,11 +135,10 @@ export function CreateProofGroupDialog({
             <input type="hidden" name="_intent" value="createProofGroup" />
 
             <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-              Group name
+              Group name (optional)
               <input
                 name="name"
-                required
-                placeholder="e.g. Left chest embroidery"
+                placeholder="e.g. Left chest embroidery — leave blank to auto-name"
                 className="rounded border border-border px-2 py-1.5 text-sm text-ink"
               />
             </label>
@@ -160,7 +180,7 @@ export function CreateProofGroupDialog({
             </div>
 
             <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-              Proof requirement
+              Proof requirement (optional — can be decided later)
               <select
                 name="requirement"
                 value={requirement}
@@ -216,11 +236,25 @@ export function CreateProofGroupDialog({
 
             {lineOptions.length > 0 ? (
               <fieldset className="rounded border border-border p-2">
-                <legend className="px-1 text-xs font-medium text-muted">Linked order lines</legend>
+                <div className="flex items-center justify-between px-1">
+                  <legend className="text-xs font-medium text-muted">Linked order lines</legend>
+                  <label className="flex items-center gap-1.5 text-xs text-muted">
+                    <input type="checkbox" checked={allLinesSelected} onChange={toggleAllLines} />
+                    Select all
+                  </label>
+                </div>
                 <div className="flex max-h-32 flex-col gap-1 overflow-y-auto">
                   {lineOptions.map((line) => (
                     <label key={line.id} className="flex items-center gap-2 text-sm text-ink">
-                      <input type="checkbox" name="orderLineId" value={line.id} />
+                      <input
+                        type="checkbox"
+                        name="orderLineId"
+                        value={line.id}
+                        checked={selectedLineIds.has(line.id)}
+                        onChange={() => {
+                          toggleLine(line.id);
+                        }}
+                      />
                       {line.productTitle}
                       {line.variantTitle ? ` — ${line.variantTitle}` : ""} (qty {line.quantity})
                     </label>

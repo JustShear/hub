@@ -9,7 +9,7 @@ import {
 } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import { trimmedOrNull } from "~/lib/strings";
-import { NO_PROOF_REASON_LABELS } from "~/domain/proofs/labels";
+import { DECORATION_METHOD_LABELS, NO_PROOF_REASON_LABELS } from "~/domain/proofs/labels";
 import { recalculateOrderProofSummary } from "~/domain/proofs/order-proof-summary.server";
 
 export interface CreateProofGroupInput {
@@ -45,10 +45,16 @@ export async function createProofGroup(
     return { outcome: "rejected", reason: "Order not found." };
   }
 
-  const trimmedName = input.name.trim();
-  if (!trimmedName) {
-    return { outcome: "rejected", reason: "A proof group needs a name." };
-  }
+  // Name is a convenience label, not a required decision — staff can leave
+  // it blank and fill it in later; fall back to a sensible auto-generated
+  // one derived from decoration method + placement (matching how
+  // description/placement are already optional) rather than blocking
+  // creation on it.
+  const trimmedName =
+    input.name.trim() ||
+    [DECORATION_METHOD_LABELS[input.decorationMethod], trimmedOrNull(input.placement)]
+      .filter(Boolean)
+      .join(" — ");
 
   if (input.requirement === "NOT_REQUIRED") {
     if (!input.noProofReason) {
