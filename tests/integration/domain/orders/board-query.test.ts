@@ -453,4 +453,45 @@ describe("loadBoardColumns (integration)", () => {
 
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
+
+  it("reports hasEmbroideryLineMarker (not hasDecorationLineMarker) for an order whose line carries an Embroidery property", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const embroideredOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(embroideredOrder.id);
+    const embroideredLine = await db.shopifyOrderLine.create({
+      data: {
+        orderId: embroideredOrder.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Personalised Cap",
+        quantity: 1,
+      },
+    });
+    const property = await db.shopifyLineProperty.create({
+      data: { orderLineId: embroideredLine.id, name: "Embroidery text", value: "JS" },
+    });
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const card = result.columns.flatMap((c) => c.cards).find((c) => c.id === embroideredOrder.id);
+    expect(card?.hasEmbroideryLineMarker).toBe(true);
+    expect(card?.hasDecorationLineMarker).toBe(false);
+
+    await db.shopifyLineProperty.delete({ where: { id: property.id } });
+  });
 });

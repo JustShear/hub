@@ -31,6 +31,7 @@ function makeCard(overrides: Partial<BoardCard>): BoardCard {
     hasOpenExceptionCase: false,
     hasCustomerUpload: false,
     hasDecorationLineMarker: false,
+    hasEmbroideryLineMarker: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,

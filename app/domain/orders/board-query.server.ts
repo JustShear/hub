@@ -183,8 +183,10 @@ export interface BoardCard {
   hasOpenExceptionCase: boolean;
   /** At least one line has a customer-uploaded file (OPTIS/Shopify FILE_UPLOAD property) linked via CustomerArtworkAsset. */
   hasCustomerUpload: boolean;
-  /** At least one line's Shopify property name/value contains a decoration marker ("_bssIntegrate", "Embroidery", "Printing", or "Printed"). */
+  /** At least one line's Shopify property name/value contains a decoration marker ("_bssIntegrate", "Printing", or "Printed"). */
   hasDecorationLineMarker: boolean;
+  /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
+  hasEmbroideryLineMarker: boolean;
   /** Null only for special-view (on hold / cancelled / archived) cards. */
   columnKey: BoardColumnKey | null;
   lines: BoardCardProductLine[];
@@ -287,6 +289,7 @@ function toBoardCard(
   openExceptionCaseOrderIds: Set<string>,
   customerUploadOrderIds: Set<string>,
   decorationLineMarkerOrderIds: Set<string>,
+  embroideryLineMarkerOrderIds: Set<string>,
 ): BoardCard {
   return {
     id: row.id,
@@ -320,6 +323,7 @@ function toBoardCard(
     hasOpenExceptionCase: openExceptionCaseOrderIds.has(row.id),
     hasCustomerUpload: customerUploadOrderIds.has(row.id),
     hasDecorationLineMarker: decorationLineMarkerOrderIds.has(row.id),
+    hasEmbroideryLineMarker: embroideryLineMarkerOrderIds.has(row.id),
     columnKey: getBoardColumnKey(row),
     lines: row.lines.map((line) => ({
       id: line.id,
@@ -498,19 +502,29 @@ async function loadOrderIdsWithCustomerUpload(orderIds: string[]): Promise<Set<s
   return new Set(links.map((l) => l.orderLine.orderId));
 }
 
-// Shop-requested markers indicating a line needs decoration (embroidery/print)
-// attention — checked as a case-insensitive substring against both the raw
-// Shopify line-property name and value, since we don't know in advance which
-// side a given integration puts the marker on (e.g. BSS's own "_bssIntegrate"
-// property name vs. an OPTIS-style "Embroidery"/"Printing" value).
-const DECORATION_LINE_MARKERS = ["_bssIntegrate", "Embroidery", "Printing", "Printed"];
+// Shop-requested markers indicating a line needs decoration (print) attention
+// — checked as a case-insensitive substring against both the raw Shopify
+// line-property name and value, since we don't know in advance which side a
+// given integration puts the marker on (e.g. BSS's own "_bssIntegrate"
+// property name vs. an OPTIS-style "Printing"/"Printed" value). Embroidery is
+// deliberately excluded here — it gets its own blue tint below instead of
+// the pink one these markers drive.
+const DECORATION_LINE_MARKERS = ["_bssIntegrate", "Printing", "Printed"];
 
-async function loadOrderIdsWithDecorationLineMarker(orderIds: string[]): Promise<Set<string>> {
+// Same substring/case-insensitivity rules as DECORATION_LINE_MARKERS, but its
+// own array/tint so an embroidery line reads as light blue on the board
+// instead of pink, even if it also happens to carry one of the pink markers.
+const EMBROIDERY_LINE_MARKERS = ["Embroidery"];
+
+async function loadOrderIdsWithLinePropertyMarker(
+  orderIds: string[],
+  markers: string[],
+): Promise<Set<string>> {
   if (orderIds.length === 0) return new Set();
   const properties = await db.shopifyLineProperty.findMany({
     where: {
       orderLine: { orderId: { in: orderIds } },
-      OR: DECORATION_LINE_MARKERS.flatMap((marker) => [
+      OR: markers.flatMap((marker) => [
         { name: { contains: marker, mode: "insensitive" as const } },
         { value: { contains: marker, mode: "insensitive" as const } },
       ]),
@@ -529,6 +543,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   openExceptionCaseOrderIds: Set<string>;
   customerUploadOrderIds: Set<string>;
   decorationLineMarkerOrderIds: Set<string>;
+  embroideryLineMarkerOrderIds: Set<string>;
 }> {
   const proofGroupIds = rows.flatMap((r) => r.proofGroups.map((g) => g.id));
   const staffIds = rows.flatMap((r) => r.proofGroups.map((g) => g.assignedStaffId));
@@ -542,6 +557,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
+    embroideryLineMarkerOrderIds,
   ] = await Promise.all([
     loadBlockedProofGroupIds(proofGroupIds),
     resolveStaffNames(staffIds),
@@ -550,7 +566,8 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     loadWarehousePickIndicatorsByOrderId(orderIds),
     loadOpenExceptionCaseOrderIds(orderIds),
     loadOrderIdsWithCustomerUpload(orderIds),
-    loadOrderIdsWithDecorationLineMarker(orderIds),
+    loadOrderIdsWithLinePropertyMarker(orderIds, DECORATION_LINE_MARKERS),
+    loadOrderIdsWithLinePropertyMarker(orderIds, EMBROIDERY_LINE_MARKERS),
   ]);
   return {
     blockedProofGroupIds,
@@ -561,6 +578,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
+    embroideryLineMarkerOrderIds,
   };
 }
 
@@ -755,6 +773,7 @@ export async function loadBoardColumns(params: {
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
+    embroideryLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -768,6 +787,7 @@ export async function loadBoardColumns(params: {
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
+      embroideryLineMarkerOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -823,6 +843,7 @@ export async function loadMoreForColumn(params: {
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
+      embroideryLineMarkerOrderIds,
     } = await loadProofGroupBoardContext(rows);
     let cards = rows.map((row) =>
       toBoardCard(
@@ -836,6 +857,7 @@ export async function loadMoreForColumn(params: {
         openExceptionCaseOrderIds,
         customerUploadOrderIds,
         decorationLineMarkerOrderIds,
+        embroideryLineMarkerOrderIds,
       ),
     );
     cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -863,6 +885,7 @@ export async function loadMoreForColumn(params: {
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
+    embroideryLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -876,6 +899,7 @@ export async function loadMoreForColumn(params: {
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
+      embroideryLineMarkerOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -915,6 +939,7 @@ export async function loadSpecialView(params: {
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
+    embroideryLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   const cards = rows.map((row) =>
     toBoardCard(
@@ -928,6 +953,7 @@ export async function loadSpecialView(params: {
       openExceptionCaseOrderIds,
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
+      embroideryLineMarkerOrderIds,
     ),
   );
   const last = rows.at(-1);

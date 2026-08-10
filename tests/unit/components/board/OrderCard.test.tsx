@@ -35,6 +35,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasOpenExceptionCase: false,
     hasCustomerUpload: false,
     hasDecorationLineMarker: false,
+    hasEmbroideryLineMarker: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,
@@ -267,11 +268,34 @@ describe("OrderCard", () => {
     );
   });
 
-  it("also tints the card light pink when a line carries a decoration marker (_bssIntegrate/Embroidery/Printing/Printed)", () => {
+  it("also tints the card light pink when a line carries a decoration marker (_bssIntegrate/Printing/Printed)", () => {
     renderCard(makeCard({ orderNumber: "#1005", hasDecorationLineMarker: true }), true);
     expect(screen.getByRole("link", { name: "#1005" }).closest("div.rounded-lg")).toHaveClass(
       "bg-accent-pink",
     );
+  });
+
+  it("tints the card light blue when a line carries an embroidery marker", () => {
+    renderCard(makeCard({ orderNumber: "#1006", hasEmbroideryLineMarker: true }), true);
+    expect(screen.getByRole("link", { name: "#1006" }).closest("div.rounded-lg")).toHaveClass(
+      "bg-accent-blue",
+    );
+  });
+
+  it("shows blue rather than pink when an order has both an embroidery marker and another pink-triggering signal", () => {
+    renderCard(
+      makeCard({
+        orderNumber: "#1007",
+        hasEmbroideryLineMarker: true,
+        hasCustomerUpload: true,
+        needsPrinting: true,
+        hasDecorationLineMarker: true,
+      }),
+      true,
+    );
+    const card = screen.getByRole("link", { name: "#1007" }).closest("div.rounded-lg");
+    expect(card).toHaveClass("bg-accent-blue");
+    expect(card).not.toHaveClass("bg-accent-pink");
   });
 
   it("shows a Needs printing checkbox reflecting the card's current value", () => {
