@@ -50,8 +50,10 @@ type CreateProofGroupResponse =
   | { intent: "createProofGroup"; ok: true }
   | { intent: "createProofGroup"; ok: false; error: string };
 
-// Default requirement is always UNDETERMINED unless the user explicitly
-// picks otherwise — never inferred from whether lines/assets were selected.
+// Defaults to REQUIRED so staff don't have to think about it for the common
+// case — but it's still just a pre-selected option, never enforced or
+// inferred from whether lines/assets were selected; staff can change it to
+// anything before submitting.
 export function CreateProofGroupDialog({
   orderId,
   lineOptions,
@@ -60,7 +62,7 @@ export function CreateProofGroupDialog({
 }: CreateProofGroupDialogProps) {
   const fetcher = useFetcher<CreateProofGroupResponse>();
   const [open, setOpen] = useState(false);
-  const [requirement, setRequirement] = useState<ProofRequirementValue>("UNDETERMINED");
+  const [requirement, setRequirement] = useState<ProofRequirementValue>("REQUIRED");
   const [noProofReason, setNoProofReason] = useState<NoProofReason | "">("");
   const [decorationMethod, setDecorationMethod] = useState<DecorationMethod>("EMBROIDERY");
   const [selectedLineIds, setSelectedLineIds] = useState<Set<string>>(new Set());
@@ -91,7 +93,7 @@ export function CreateProofGroupDialog({
   useEffect(() => {
     if (fetcher.state === "idle" && response?.ok) {
       setOpen(false);
-      setRequirement("UNDETERMINED");
+      setRequirement("REQUIRED");
       setNoProofReason("");
       setDecorationMethod("EMBROIDERY");
       setSelectedLineIds(new Set());
