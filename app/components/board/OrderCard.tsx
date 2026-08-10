@@ -116,17 +116,32 @@ export function OrderCard({
 
       {card.tags.length > 0 ? <TagChips tags={card.tags} /> : null}
 
-      {card.columnKey === "proof_approved" && card.proofGroupSummary.latestThumbnail ? (
-        <img
-          src={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
-          alt=""
-          loading="lazy"
-          className="max-h-48 w-full rounded border border-border bg-page object-contain"
-        />
+      {(card.columnKey === "proof_approved" || card.columnKey === "exported_for_print") &&
+      card.proofGroupSummary.latestThumbnail ? (
+        <a
+          href={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="View full-size proof"
+          onClick={(e) => {
+            // Stop the click reaching the draggable card wrapper.
+            e.stopPropagation();
+          }}
+          className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+        >
+          <img
+            src={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
+            alt=""
+            loading="lazy"
+            className="max-h-48 w-full rounded border border-border bg-page object-contain"
+          />
+        </a>
       ) : null}
 
       <div className="flex items-center gap-2 text-xs text-muted">
-        {card.columnKey !== "proof_approved" && card.proofGroupSummary.latestThumbnail ? (
+        {card.columnKey !== "proof_approved" &&
+        card.columnKey !== "exported_for_print" &&
+        card.proofGroupSummary.latestThumbnail ? (
           <img
             src={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
             alt=""

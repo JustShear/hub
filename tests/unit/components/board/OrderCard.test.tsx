@@ -158,32 +158,39 @@ describe("OrderCard", () => {
     expect(screen.queryByRole("button", { name: /move to/i })).not.toBeInTheDocument();
   });
 
-  it("shows a large, full-width proof preview in the Proof Approved column", () => {
-    renderCard(
-      makeCard({
-        columnKey: "proof_approved",
-        proofGroupSummary: {
-          activeGroupCount: 1,
-          readyCount: 0,
-          requiringWorkCount: 0,
-          noProofRequiredCount: 0,
-          blockedCount: 0,
-          waitingOnCustomerCount: 0,
-          changesRequestedCount: 0,
-          approvedCount: 1,
-          readyForExportCount: 0,
-          exportedCount: 0,
-          latestThumbnail: { assetId: "asset_1", mimeType: "image/png" },
-          assignedStaffNames: [],
-        },
-      }),
-      true,
-    );
-    const images = screen.getAllByRole("presentation", { hidden: true });
-    const largePreview = images.find((img) => img.className.includes("max-h-48"));
-    expect(largePreview).toBeDefined();
-    expect(largePreview).toHaveAttribute("src", "/proof-assets/asset_1");
-  });
+  it.each(["proof_approved", "exported_for_print"] as const)(
+    "shows a large, full-width, clickable proof preview in the %s column",
+    (columnKey) => {
+      renderCard(
+        makeCard({
+          columnKey,
+          proofGroupSummary: {
+            activeGroupCount: 1,
+            readyCount: 0,
+            requiringWorkCount: 0,
+            noProofRequiredCount: 0,
+            blockedCount: 0,
+            waitingOnCustomerCount: 0,
+            changesRequestedCount: 0,
+            approvedCount: 1,
+            readyForExportCount: 0,
+            exportedCount: 0,
+            latestThumbnail: { assetId: "asset_1", mimeType: "image/png" },
+            assignedStaffNames: [],
+          },
+        }),
+        true,
+      );
+      const images = screen.getAllByRole("presentation", { hidden: true });
+      const largePreview = images.find((img) => img.className.includes("max-h-48"));
+      expect(largePreview).toBeDefined();
+      expect(largePreview).toHaveAttribute("src", "/proof-assets/asset_1");
+
+      const link = screen.getByRole("link", { name: "View full-size proof" });
+      expect(link).toHaveAttribute("href", "/proof-assets/asset_1");
+      expect(link).toHaveAttribute("target", "_blank");
+    },
+  );
 
   it("keeps the small icon-sized proof thumbnail in every other column", () => {
     renderCard(
