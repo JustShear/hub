@@ -10,6 +10,7 @@ function staffUser(permissionKeys: string[]): StaffUserWithPermissions {
     name: "Test Staff",
     roleNames: ["PACKING_STAFF"],
     permissionKeys: new Set(permissionKeys),
+    theme: "CLASSIC",
   };
 }
 

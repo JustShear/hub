@@ -5,13 +5,16 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useRouteLoaderData,
 } from "react-router";
+import type { Theme } from "@prisma/client";
 
 import type { Route } from "./+types/root";
 import "./app.css";
 import { env } from "./lib/env.server";
 import { startJobPoller } from "./lib/job-poller.server";
 import { startFulfillmentPoller } from "./lib/fulfillment-poller.server";
+import type { loader as appLoader } from "./routes/app";
 
 // Typography and design tokens (SRS Section 19.1) are wired up in Milestone 06.
 export const links: Route.LinksFunction = () => [
@@ -31,7 +34,23 @@ export function loader() {
   return null;
 }
 
+// Maps the staff member's Theme preference to the data-theme attribute
+// app.css's [data-theme="..."] blocks key off. CLASSIC (and unauthenticated
+// pages, which never match routes/app at all — login, webhooks, the public
+// proof portal) render with no attribute, since CLASSIC is the @theme
+// block's own default and needs no override.
+function themeAttribute(theme: Theme | undefined): string | undefined {
+  if (theme === "DARK") return "dark";
+  if (theme === "COLOURED_MODERN") return "coloured-modern";
+  return undefined;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
+  // Reads the authenticated layout's already-fetched staffUser rather than
+  // doing a second DB round trip — undefined on any route that doesn't
+  // nest under routes/app (or if it renders before that loader resolves).
+  const appData = useRouteLoaderData<typeof appLoader>("routes/app");
+
   return (
     <html lang="en">
       <head>
@@ -40,7 +59,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body>
+      <body data-theme={themeAttribute(appData?.staffUser.theme)}>
         {children}
         <ScrollRestoration />
         <Scripts />

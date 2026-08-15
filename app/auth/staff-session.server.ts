@@ -1,4 +1,5 @@
 import { createCookieSessionStorage, redirect } from "react-router";
+import type { Theme } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import { env } from "~/lib/env.server";
 
@@ -47,6 +48,7 @@ export interface StaffUserWithPermissions {
   name: string;
   roleNames: string[];
   permissionKeys: Set<string>;
+  theme: Theme;
 }
 
 async function loadStaffUserWithPermissions(
@@ -85,6 +87,7 @@ async function loadStaffUserWithPermissions(
     name: staffUser.name,
     roleNames,
     permissionKeys,
+    theme: staffUser.theme,
   };
 }
 

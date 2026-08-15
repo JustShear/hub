@@ -50,6 +50,7 @@ model StaffUser {
   passwordHash String // node:crypto scrypt — no Shopify staff account involved
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
+  theme        Theme     @default(CLASSIC)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -151,6 +152,14 @@ enum Priority {
   NORMAL
   HIGH
   URGENT
+}
+
+// Per-staff-user display preference for the Hub's interface (SRS-adjacent —
+// no business meaning, purely cosmetic). CLASSIC is today's existing look.
+enum Theme {
+  CLASSIC
+  DARK
+  COLOURED_MODERN
 }
 
 enum PropertyDetectedType {

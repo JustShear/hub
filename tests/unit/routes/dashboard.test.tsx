@@ -12,6 +12,7 @@ function staffUserWith(permissionKeys: string[]): StaffUserWithPermissions {
     name: "Administrator",
     roleNames: ["ADMINISTRATOR"],
     permissionKeys: new Set(permissionKeys),
+    theme: "CLASSIC",
   };
 }
 

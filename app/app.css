@@ -28,6 +28,45 @@ body {
   color: var(--color-ink);
 }
 
+/*
+ * Alternate interface themes — a per-staff-user preference (see
+ * app/domain/staff/update-theme-preference.server.ts), applied as a
+ * data-theme attribute on <body> in app/root.tsx. Every component styles
+ * itself with the same bg-page/text-ink/bg-accent-pink/etc. utilities
+ * regardless of theme; Tailwind v4 compiles those to var(--color-*), so
+ * redefining the custom properties here re-themes the whole app with zero
+ * component changes. CLASSIC needs no block — it's the @theme default above.
+ */
+[data-theme="dark"] {
+  --color-page: #14171c;
+  --color-surface: #1f242c;
+  --color-accent-sand: #5b4a34;
+  --color-accent-blue: #274550;
+  --color-accent-pink: #4a2c35;
+  --color-brand-navy: #6c8ecf;
+  --color-ink: #e7e4dc;
+  --color-muted: #9aa1a8;
+  --color-success: #7fb389;
+  --color-warning: #d9a75c;
+  --color-error: #d4837f;
+  --color-border: #333a44;
+}
+
+[data-theme="coloured-modern"] {
+  --color-page: #eef2fa;
+  --color-surface: #ffffff;
+  --color-accent-sand: #f0b95c;
+  --color-accent-blue: #7dd3e0;
+  --color-accent-pink: #ff9ec4;
+  --color-brand-navy: #2a3fae;
+  --color-ink: #1b2130;
+  --color-muted: #5b6478;
+  --color-success: #34b174;
+  --color-warning: #e8a23c;
+  --color-error: #e0524f;
+  --color-border: #d7deee;
+}
+
 /* Respect reduced-motion preferences wherever transitions are used. */
 @media (prefers-reduced-motion: reduce) {
   *,

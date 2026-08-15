@@ -24,6 +24,7 @@ export default [
     route("exceptions/actions", "routes/exceptions.actions.tsx"),
     route("exceptions/report", "routes/exceptions.report.tsx"),
     route("notifications/actions", "routes/notifications.actions.tsx"),
+    route("profile/actions", "routes/profile.actions.tsx"),
     route("proof-assets/:assetId", "routes/proof-assets.$assetId.tsx"),
     route("customer-response-assets/:assetId", "routes/customer-response-assets.$assetId.tsx"),
     route(
