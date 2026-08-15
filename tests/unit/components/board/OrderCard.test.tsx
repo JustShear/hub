@@ -36,6 +36,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasCustomerUpload: false,
     hasDecorationLineMarker: false,
     hasEmbroideryLineMarker: false,
+    hasCustomerNote: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,
@@ -252,6 +253,16 @@ describe("OrderCard", () => {
     expect(screen.getByRole("link", { name: "#1002" }).closest("div.rounded-lg")).toHaveClass(
       "bg-accent-pink",
     );
+  });
+
+  it("shows a purple flag when the customer left a note at checkout", () => {
+    renderCard(makeCard({ orderNumber: "#1010", hasCustomerNote: true }), true);
+    expect(screen.getByTitle("Customer left a note at checkout")).toBeInTheDocument();
+  });
+
+  it("shows no flag when the customer left no checkout note", () => {
+    renderCard(makeCard({ orderNumber: "#1011", hasCustomerNote: false }), true);
+    expect(screen.queryByTitle("Customer left a note at checkout")).not.toBeInTheDocument();
   });
 
   it("keeps the default card background when there is no customer upload", () => {

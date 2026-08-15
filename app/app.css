@@ -13,6 +13,7 @@
   --color-accent-sand: #d8c5a5;
   --color-accent-blue: #a9cad2;
   --color-accent-pink: #f7dbe3;
+  --color-accent-purple: #7c5cbf;
   --color-brand-navy: #3b4e77;
   --color-ink: #27313a;
   --color-muted: #727a80;
@@ -43,6 +44,7 @@ body {
   --color-accent-sand: #5b4a34;
   --color-accent-blue: #274550;
   --color-accent-pink: #4a2c35;
+  --color-accent-purple: #a992e0;
   --color-brand-navy: #6c8ecf;
   --color-ink: #e7e4dc;
   --color-muted: #9aa1a8;
@@ -58,6 +60,7 @@ body {
   --color-accent-sand: #f0b95c;
   --color-accent-blue: #7dd3e0;
   --color-accent-pink: #ff9ec4;
+  --color-accent-purple: #9b6ce0;
   --color-brand-navy: #2a3fae;
   --color-ink: #1b2130;
   --color-muted: #5b6478;

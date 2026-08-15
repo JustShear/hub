@@ -494,4 +494,61 @@ describe("loadBoardColumns (integration)", () => {
 
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
+
+  it("reports hasCustomerNote only for an order with a non-blank Shopify checkout note", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const notedOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+        noteFromCustomer: "Please leave with the neighbour if I'm not home",
+      },
+    });
+    createdOrderIds.push(notedOrder.id);
+
+    const blankNoteOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+        noteFromCustomer: "   ",
+      },
+    });
+    createdOrderIds.push(blankNoteOrder.id);
+
+    const plainOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(plainOrder.id);
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const cards = result.columns.flatMap((c) => c.cards);
+    expect(cards.find((c) => c.id === notedOrder.id)?.hasCustomerNote).toBe(true);
+    expect(cards.find((c) => c.id === blankNoteOrder.id)?.hasCustomerNote).toBe(false);
+    expect(cards.find((c) => c.id === plainOrder.id)?.hasCustomerNote).toBe(false);
+  });
 });

@@ -9,6 +9,7 @@ import {
   AlertOctagon,
   CalendarClock,
   Clock,
+  Flag,
   GripVertical,
   MailWarning,
   MessageSquareWarning,
@@ -85,7 +86,7 @@ export function OrderCard({
     <div
       ref={draggable.setNodeRef}
       style={style}
-      className={`flex flex-col gap-2 rounded-lg border border-border p-3 text-sm shadow-sm ${
+      className={`relative flex flex-col gap-2 rounded-lg border border-border p-3 text-sm shadow-sm ${
         card.hasEmbroideryLineMarker
           ? "bg-accent-blue"
           : card.hasCustomerUpload || card.needsPrinting || card.hasDecorationLineMarker
@@ -93,6 +94,15 @@ export function OrderCard({
             : "bg-surface"
       } ${draggable.isDragging ? "opacity-50" : ""} ${isPending ? "opacity-70" : ""}`}
     >
+      {card.hasCustomerNote ? (
+        <span
+          title="Customer left a note at checkout"
+          className="absolute -left-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-accent-purple text-white shadow-sm"
+        >
+          <Flag aria-hidden="true" className="h-3 w-3" />
+          <span className="sr-only">Customer left a note at checkout</span>
+        </span>
+      ) : null}
       <div className="flex items-start justify-between gap-2">
         <Link
           to={{ pathname: `/orders/${card.id}`, search: location.search }}

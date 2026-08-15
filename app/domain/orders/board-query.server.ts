@@ -69,6 +69,7 @@ const BOARD_CARD_SELECT = {
   isPreorder: true,
   needsPrinting: true,
   cancelledAt: true,
+  noteFromCustomer: true,
   lines: {
     take: 6,
     orderBy: { createdAt: "asc" },
@@ -187,6 +188,8 @@ export interface BoardCard {
   hasDecorationLineMarker: boolean;
   /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
   hasEmbroideryLineMarker: boolean;
+  /** The customer left a free-text note at Shopify checkout (ShopifyOrder.noteFromCustomer) — never staff-authored. */
+  hasCustomerNote: boolean;
   /** Null only for special-view (on hold / cancelled / archived) cards. */
   columnKey: BoardColumnKey | null;
   lines: BoardCardProductLine[];
@@ -324,6 +327,7 @@ function toBoardCard(
     hasCustomerUpload: customerUploadOrderIds.has(row.id),
     hasDecorationLineMarker: decorationLineMarkerOrderIds.has(row.id),
     hasEmbroideryLineMarker: embroideryLineMarkerOrderIds.has(row.id),
+    hasCustomerNote: Boolean(row.noteFromCustomer?.trim()),
     columnKey: getBoardColumnKey(row),
     lines: row.lines.map((line) => ({
       id: line.id,
