@@ -21,6 +21,13 @@
   --color-warning: #c7974d;
   --color-error: #b96b68;
   --color-border: #e5e1d9;
+
+  /* Cats theme companion animations — see CatCompanion.tsx. Registered here
+     (not just as bare @keyframes) so Tailwind v4 generates matching
+     animate-cat-* utilities from the --animate-* token convention. */
+  --animate-cat-tail: cat-tail-swish 2.4s ease-in-out infinite;
+  --animate-cat-blink: cat-blink 5s ease-in-out infinite;
+  --animate-cat-bob: cat-bob 3s ease-in-out infinite;
 }
 
 html,
@@ -68,6 +75,59 @@ body {
   --color-warning: #e8a23c;
   --color-error: #e0524f;
   --color-border: #d7deee;
+}
+
+[data-theme="cats"] {
+  --color-page: #fff6ea;
+  --color-surface: #ffffff;
+  --color-accent-sand: #f0cf9c;
+  --color-accent-blue: #b7dff0;
+  --color-accent-pink: #ffd6e6;
+  --color-accent-purple: #caa8f5;
+  --color-brand-navy: #e08a3c;
+  --color-ink: #3a2b21;
+  --color-muted: #8a7568;
+  --color-success: #7fb389;
+  --color-warning: #e0a83c;
+  --color-error: #e07a6b;
+  --color-border: #f0ddc0;
+}
+
+/*
+ * The Cats theme's companion (see app/components/shell/CatCompanion.tsx) —
+ * a fixed, decorative, pointer-events-none SVG cat. Keyframes live here
+ * rather than inline so @media (prefers-reduced-motion) above can hush them
+ * along with every other animation in the app.
+ */
+@keyframes cat-tail-swish {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(18deg);
+  }
+}
+
+@keyframes cat-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes cat-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
 }
 
 /* Respect reduced-motion preferences wherever transitions are used. */

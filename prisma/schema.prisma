@@ -160,6 +160,7 @@ enum Theme {
   CLASSIC
   DARK
   COLOURED_MODERN
+  CATS
 }
 
 enum PropertyDetectedType {

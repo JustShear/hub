@@ -4,7 +4,10 @@ import { createRoutesStub } from "react-router";
 import { AppShell } from "~/components/shell/AppShell";
 import type { StaffUserWithPermissions } from "~/auth/staff-session.server";
 
-function staffUserWith(permissionKeys: string[]): StaffUserWithPermissions {
+function staffUserWith(
+  permissionKeys: string[],
+  theme: StaffUserWithPermissions["theme"] = "CLASSIC",
+): StaffUserWithPermissions {
   return {
     id: "staff_1",
     shopId: "shop_1",
@@ -12,7 +15,7 @@ function staffUserWith(permissionKeys: string[]): StaffUserWithPermissions {
     name: "Administrator",
     roleNames: ["ADMINISTRATOR"],
     permissionKeys: new Set(permissionKeys),
-    theme: "CLASSIC",
+    theme,
   };
 }
 
@@ -58,5 +61,15 @@ describe("AppShell", () => {
   it("shows the integration-issue indicator with a real count for staff with integrations.view", () => {
     renderShell(staffUserWith(["integrations.view"]), 2);
     expect(screen.getByLabelText("2 unresolved integration issues")).toBeInTheDocument();
+  });
+
+  it("shows the cat companion only when the staff member has chosen the Cats theme", () => {
+    renderShell(staffUserWith([], "CATS"));
+    expect(screen.getByTestId("cat-companion")).toBeInTheDocument();
+  });
+
+  it("hides the cat companion for every other theme", () => {
+    renderShell(staffUserWith([], "DARK"));
+    expect(screen.queryByTestId("cat-companion")).not.toBeInTheDocument();
   });
 });

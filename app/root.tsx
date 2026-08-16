@@ -42,6 +42,7 @@ export function loader() {
 function themeAttribute(theme: Theme | undefined): string | undefined {
   if (theme === "DARK") return "dark";
   if (theme === "COLOURED_MODERN") return "coloured-modern";
+  if (theme === "CATS") return "cats";
   return undefined;
 }
 

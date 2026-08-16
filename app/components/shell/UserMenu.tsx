@@ -12,6 +12,7 @@ const THEME_OPTIONS: { value: Theme; label: string }[] = [
   { value: "CLASSIC", label: "Classic" },
   { value: "DARK", label: "Dark" },
   { value: "COLOURED_MODERN", label: "Coloured modern" },
+  { value: "CATS", label: "Cats" },
 ];
 
 export function UserMenu({ staffUser }: UserMenuProps) {

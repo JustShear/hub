@@ -4,6 +4,7 @@ import type { StaffUserWithPermissions } from "~/auth/staff-session.server";
 import { getVisibleNavigation } from "~/lib/navigation";
 import { AppHeader } from "~/components/shell/AppHeader";
 import { AppSidebar } from "~/components/shell/AppSidebar";
+import { CatCompanion } from "~/components/shell/CatCompanion";
 
 export interface AppShellProps {
   staffUser: StaffUserWithPermissions;
@@ -38,6 +39,7 @@ export function AppShell({
         <AppSidebar groups={groups} integrationIssueCount={integrationIssueCount} />
         <main className="min-w-0 flex-1 p-6">{children}</main>
       </div>
+      {staffUser.theme === "CATS" ? <CatCompanion /> : null}
     </div>
   );
 }

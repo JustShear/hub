@@ -34,7 +34,7 @@ describe("UserMenu", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows all three theme options with the staff member's current choice checked", async () => {
+  it("shows all four theme options with the staff member's current choice checked", async () => {
     renderMenu(staffUserWith("DARK"));
     fireEvent.pointerDown(screen.getByRole("button", { name: "Account menu for Administrator" }));
 
@@ -48,6 +48,10 @@ describe("UserMenu", () => {
       "true",
     );
     expect(screen.getByRole("menuitemradio", { name: "Coloured modern" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(screen.getByRole("menuitemradio", { name: "Cats" })).toHaveAttribute(
       "aria-checked",
       "false",
     );
@@ -78,6 +82,31 @@ describe("UserMenu", () => {
 
     await waitFor(() => {
       expect(submittedTheme).toBe("COLOURED_MODERN");
+    });
+  });
+
+  it("submits CATS when the Cats theme is chosen", async () => {
+    let submittedTheme: string | null = null;
+    const Stub = createRoutesStub([
+      { path: "/dashboard", Component: () => <UserMenu staffUser={staffUserWith("CLASSIC")} /> },
+      { path: "/logout", action: () => null },
+      {
+        path: "/profile/actions",
+        action: async ({ request }) => {
+          const formData = await request.formData();
+          submittedTheme = formData.get("theme") as string | null;
+          return { intent: "setTheme", ok: true };
+        },
+      },
+    ]);
+    render(<Stub initialEntries={["/dashboard"]} />);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Account menu for Administrator" }));
+
+    const option = await screen.findByRole("menuitemradio", { name: "Cats" });
+    fireEvent.click(option);
+
+    await waitFor(() => {
+      expect(submittedTheme).toBe("CATS");
     });
   });
 });

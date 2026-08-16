@@ -56,6 +56,28 @@ describe("profile.actions route (integration)", () => {
     expect(updated.theme).toBe("DARK");
   });
 
+  it("accepts the CATS theme", async () => {
+    const staffUser = await createStaffUser();
+    const cookie = await sessionCookieFor(staffUser.id);
+    const formData = new FormData();
+    formData.set("_intent", "setTheme");
+    formData.set("theme", "CATS");
+
+    const result = (await action({
+      request: new Request("http://localhost/profile/actions", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never)) as { ok: boolean };
+
+    expect(result.ok).toBe(true);
+    const updated = await db.staffUser.findUniqueOrThrow({ where: { id: staffUser.id } });
+    expect(updated.theme).toBe("CATS");
+  });
+
   it("rejects an unknown theme value", async () => {
     const staffUser = await createStaffUser();
     const cookie = await sessionCookieFor(staffUser.id);
