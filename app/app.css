@@ -78,19 +78,22 @@ body {
 }
 
 [data-theme="cats"] {
-  --color-page: #fff6ea;
+  --color-page: #f5eefc;
   --color-surface: #ffffff;
-  --color-accent-sand: #f0cf9c;
+  --color-accent-sand: #d9c3f0;
+  /* Deliberately not lilac — embroidery tiles (hasEmbroideryLineMarker) stay
+     blue in every theme, Cats included, so they're never confused with the
+     printing/upload tiles that DO follow the theme's accent-pink. */
   --color-accent-blue: #b7dff0;
-  --color-accent-pink: #ffd6e6;
-  --color-accent-purple: #caa8f5;
-  --color-brand-navy: #e08a3c;
-  --color-ink: #3a2b21;
-  --color-muted: #8a7568;
+  --color-accent-pink: #ddc4f2;
+  --color-accent-purple: #9a68d9;
+  --color-brand-navy: #7c4fb0;
+  --color-ink: #362a49;
+  --color-muted: #8579a3;
   --color-success: #7fb389;
-  --color-warning: #e0a83c;
-  --color-error: #e07a6b;
-  --color-border: #f0ddc0;
+  --color-warning: #d9a44e;
+  --color-error: #c97570;
+  --color-border: #e6d9f7;
 }
 
 /*
