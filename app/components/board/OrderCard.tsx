@@ -16,6 +16,7 @@ import {
   PackageSearch,
   ShieldAlert,
   Truck,
+  TriangleAlert,
 } from "lucide-react";
 import { Link, useFetcher, useLocation } from "react-router";
 import type { BoardCard } from "~/domain/orders/board-query.server";
@@ -67,6 +68,9 @@ export function OrderCard({
     ? { transform: CSS.Translate.toString(draggable.transform) }
     : undefined;
 
+  const isApprovedOrExportedColumn =
+    card.columnKey === "proof_approved" || card.columnKey === "exported_for_print";
+
   const hasIndicators =
     card.isPreorder ||
     card.isWaitingOnCustomer ||
@@ -103,6 +107,17 @@ export function OrderCard({
           <span className="sr-only">Customer left a note at checkout</span>
         </span>
       ) : null}
+      {isApprovedOrExportedColumn && card.hasApprovalOrPaymentIssue ? (
+        <span
+          title="Not every proof is approved yet, or the order isn't paid in full"
+          className="absolute -top-1.5 left-4 flex h-5 w-5 items-center justify-center rounded-full bg-error text-white shadow-sm"
+        >
+          <TriangleAlert aria-hidden="true" className="h-3 w-3" />
+          <span className="sr-only">
+            Not every proof is approved yet, or the order isn't paid in full
+          </span>
+        </span>
+      ) : null}
       <div className="flex items-start justify-between gap-2">
         <Link
           to={{ pathname: `/orders/${card.id}`, search: location.search }}
@@ -130,10 +145,9 @@ export function OrderCard({
 
       {card.tags.length > 0 ? <TagChips tags={card.tags} /> : null}
 
-      {(card.columnKey === "proof_approved" || card.columnKey === "exported_for_print") &&
-      card.proofGroupSummary.latestThumbnail ? (
+      {isApprovedOrExportedColumn && card.proofGroupSummary.latestApprovedThumbnail ? (
         <a
-          href={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
+          href={`/proof-assets/${card.proofGroupSummary.latestApprovedThumbnail.assetId}`}
           target="_blank"
           rel="noreferrer"
           aria-label="View full-size proof"
@@ -144,7 +158,7 @@ export function OrderCard({
           className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
         >
           <img
-            src={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
+            src={`/proof-assets/${card.proofGroupSummary.latestApprovedThumbnail.assetId}`}
             alt=""
             loading="lazy"
             className="max-h-48 w-full rounded border border-border bg-page object-contain"
@@ -153,9 +167,7 @@ export function OrderCard({
       ) : null}
 
       <div className="flex items-center gap-2 text-xs text-muted">
-        {card.columnKey !== "proof_approved" &&
-        card.columnKey !== "exported_for_print" &&
-        card.proofGroupSummary.latestThumbnail ? (
+        {!isApprovedOrExportedColumn && card.proofGroupSummary.latestThumbnail ? (
           <img
             src={`/proof-assets/${card.proofGroupSummary.latestThumbnail.assetId}`}
             alt=""

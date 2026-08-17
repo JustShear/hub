@@ -37,6 +37,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasDecorationLineMarker: false,
     hasEmbroideryLineMarker: false,
     hasCustomerNote: false,
+    hasApprovalOrPaymentIssue: false,
     columnKey: "new",
     lines: [],
     lineCount: 0,
@@ -53,6 +54,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
       readyForExportCount: 0,
       exportedCount: 0,
       latestThumbnail: null,
+      latestApprovedThumbnail: null,
       assignedStaffNames: [],
     },
     assignment: null,
@@ -179,6 +181,7 @@ describe("OrderCard", () => {
             readyForExportCount: 0,
             exportedCount: 0,
             latestThumbnail: { assetId: "asset_1", mimeType: "image/png" },
+            latestApprovedThumbnail: { assetId: "asset_1", mimeType: "image/png" },
             assignedStaffNames: [],
           },
         }),
@@ -194,6 +197,35 @@ describe("OrderCard", () => {
       expect(link).toHaveAttribute("target", "_blank");
     },
   );
+
+  it("shows no large preview in Proof Approved/Exported for Print when no version has actually been approved yet", () => {
+    renderCard(
+      makeCard({
+        columnKey: "proof_approved",
+        proofGroupSummary: {
+          activeGroupCount: 1,
+          readyCount: 0,
+          requiringWorkCount: 0,
+          noProofRequiredCount: 0,
+          blockedCount: 0,
+          waitingOnCustomerCount: 1,
+          changesRequestedCount: 0,
+          approvedCount: 0,
+          readyForExportCount: 0,
+          exportedCount: 0,
+          // A newer, unapproved version's thumbnail is still the "latest"
+          // one — it must never be shown as if it were the approved proof.
+          latestThumbnail: { assetId: "asset_1", mimeType: "image/png" },
+          latestApprovedThumbnail: null,
+          assignedStaffNames: [],
+        },
+      }),
+      true,
+    );
+    const images = screen.queryAllByRole("presentation", { hidden: true });
+    expect(images.find((img) => img.className.includes("max-h-48"))).toBeUndefined();
+    expect(screen.queryByRole("link", { name: "View full-size proof" })).not.toBeInTheDocument();
+  });
 
   it("keeps the small icon-sized proof thumbnail in every other column", () => {
     renderCard(
@@ -211,6 +243,7 @@ describe("OrderCard", () => {
           readyForExportCount: 0,
           exportedCount: 0,
           latestThumbnail: { assetId: "asset_1", mimeType: "image/png" },
+          latestApprovedThumbnail: null,
           assignedStaffNames: [],
         },
       }),
@@ -263,6 +296,36 @@ describe("OrderCard", () => {
   it("shows no flag when the customer left no checkout note", () => {
     renderCard(makeCard({ orderNumber: "#1011", hasCustomerNote: false }), true);
     expect(screen.queryByTitle("Customer left a note at checkout")).not.toBeInTheDocument();
+  });
+
+  it.each(["proof_approved", "exported_for_print"] as const)(
+    "shows a red exclamation badge in the %s column when a proof isn't approved or the order isn't paid in full",
+    (columnKey) => {
+      renderCard(makeCard({ orderNumber: "#1012", columnKey, hasApprovalOrPaymentIssue: true }), true);
+      expect(
+        screen.getByTitle("Not every proof is approved yet, or the order isn't paid in full"),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("hides the exclamation badge in Proof Approved/Exported for Print once resolved", () => {
+    renderCard(
+      makeCard({ orderNumber: "#1013", columnKey: "proof_approved", hasApprovalOrPaymentIssue: false }),
+      true,
+    );
+    expect(
+      screen.queryByTitle("Not every proof is approved yet, or the order isn't paid in full"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("never shows the exclamation badge outside Proof Approved/Exported for Print, even if flagged", () => {
+    renderCard(
+      makeCard({ orderNumber: "#1014", columnKey: "new", hasApprovalOrPaymentIssue: true }),
+      true,
+    );
+    expect(
+      screen.queryByTitle("Not every proof is approved yet, or the order isn't paid in full"),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps the default card background when there is no customer upload", () => {

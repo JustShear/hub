@@ -25,6 +25,7 @@ describe("loadBoardColumns (integration)", () => {
       await db.integrationFailure.deleteMany({
         where: { relatedOrderId: { in: createdOrderIds } },
       });
+      await db.proofGroup.deleteMany({ where: { orderId: { in: createdOrderIds } } });
       await db.shopifyOrderLine.deleteMany({ where: { orderId: { in: createdOrderIds } } });
       await db.shopifyOrder.deleteMany({ where: { id: { in: createdOrderIds } } });
     }
@@ -550,5 +551,94 @@ describe("loadBoardColumns (integration)", () => {
     expect(cards.find((c) => c.id === notedOrder.id)?.hasCustomerNote).toBe(true);
     expect(cards.find((c) => c.id === blankNoteOrder.id)?.hasCustomerNote).toBe(false);
     expect(cards.find((c) => c.id === plainOrder.id)?.hasCustomerNote).toBe(false);
+  });
+
+  it("flags hasApprovalOrPaymentIssue for an order with no proof groups that isn't paid in full, not for one that is", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const unpaidOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+        financialStatus: "PARTIALLY_PAID",
+      },
+    });
+    createdOrderIds.push(unpaidOrder.id);
+
+    const paidOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+        financialStatus: "PAID",
+      },
+    });
+    createdOrderIds.push(paidOrder.id);
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const cards = result.columns.flatMap((c) => c.cards);
+    expect(cards.find((c) => c.id === unpaidOrder.id)?.hasApprovalOrPaymentIssue).toBe(true);
+    expect(cards.find((c) => c.id === paidOrder.id)?.hasApprovalOrPaymentIssue).toBe(false);
+  });
+
+  it("flags hasApprovalOrPaymentIssue while a paid order's only proof group is still unapproved, clears once approved", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+        financialStatus: "PAID",
+      },
+    });
+    createdOrderIds.push(order.id);
+    const proofGroup = await db.proofGroup.create({
+      data: {
+        orderId: order.id,
+        name: "Left chest embroidery",
+        decorationMethod: "EMBROIDERY",
+        status: "SENT",
+      },
+    });
+
+    let result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+    let card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
+    expect(card?.hasApprovalOrPaymentIssue).toBe(true);
+
+    await db.proofGroup.update({ where: { id: proofGroup.id }, data: { status: "APPROVED" } });
+
+    result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+    card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
+    expect(card?.hasApprovalOrPaymentIssue).toBe(false);
   });
 });

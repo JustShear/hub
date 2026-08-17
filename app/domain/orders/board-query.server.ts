@@ -70,6 +70,7 @@ const BOARD_CARD_SELECT = {
   needsPrinting: true,
   cancelledAt: true,
   noteFromCustomer: true,
+  financialStatus: true,
   lines: {
     take: 6,
     orderBy: { createdAt: "asc" },
@@ -92,8 +93,9 @@ const BOARD_CARD_SELECT = {
       versions: {
         where: { status: { not: "CANCELLED" } },
         orderBy: { versionNumber: "desc" },
-        take: 1,
+        take: 10,
         select: {
+          status: true,
           assets: { where: { isPrimary: true }, take: 1, select: { id: true, mimeType: true } },
         },
       },
@@ -142,6 +144,8 @@ export interface BoardCardDueDate {
 
 export interface BoardCardProofSummary extends BoardProofSummary {
   latestThumbnail: { assetId: string; mimeType: string | null } | null;
+  /** Same as latestThumbnail, but only a version whose status is APPROVED — null if none has been approved yet, even if latestThumbnail isn't. */
+  latestApprovedThumbnail: { assetId: string; mimeType: string | null } | null;
   assignedStaffNames: string[];
 }
 
@@ -190,6 +194,8 @@ export interface BoardCard {
   hasEmbroideryLineMarker: boolean;
   /** The customer left a free-text note at Shopify checkout (ShopifyOrder.noteFromCustomer) — never staff-authored. */
   hasCustomerNote: boolean;
+  /** True if this order has an active proof group not yet approved-or-beyond (or not-required), or its Shopify financialStatus isn't "PAID" — a Proof Approved/Exported for Print column placement can lag behind either fact. */
+  hasApprovalOrPaymentIssue: boolean;
   /** Null only for special-view (on hold / cancelled / archived) cards. */
   columnKey: BoardColumnKey | null;
   lines: BoardCardProductLine[];
@@ -267,6 +273,20 @@ function summarizeCardProofGroups(
     }
   }
 
+  // Same idea as latestThumbnail above, but scoped to an APPROVED version
+  // specifically — a group's latest version can be a newer draft/
+  // changes-requested revision that supersedes the approved one, so this
+  // can't reuse latestThumbnail's loop.
+  let latestApprovedThumbnail: { assetId: string; mimeType: string | null } | null = null;
+  for (const group of groups) {
+    if (group.status === "CANCELLED") continue;
+    const approvedAsset = group.versions.find((v) => v.status === "APPROVED")?.assets[0];
+    if (approvedAsset) {
+      latestApprovedThumbnail = { assetId: approvedAsset.id, mimeType: approvedAsset.mimeType };
+      break;
+    }
+  }
+
   const assignedStaffNames = [
     ...new Set(
       groups
@@ -278,7 +298,7 @@ function summarizeCardProofGroups(
     ),
   ];
 
-  return { ...counts, latestThumbnail, assignedStaffNames };
+  return { ...counts, latestThumbnail, latestApprovedThumbnail, assignedStaffNames };
 }
 
 function toBoardCard(
@@ -294,6 +314,23 @@ function toBoardCard(
   decorationLineMarkerOrderIds: Set<string>,
   embroideryLineMarkerOrderIds: Set<string>,
 ): BoardCard {
+  const proofGroupSummary = summarizeCardProofGroups(
+    row.proofGroups,
+    blockedProofGroupIds,
+    staffNames,
+  );
+  // "Resolved" means approved-or-further-along-or-not-required — the
+  // group-status pipeline advances APPROVED -> READY_FOR_EXPORT ->
+  // EXPORTED_FOR_PRINT, so a group doesn't stay counted in approvedCount
+  // once it's progressed past it. An order with zero proof groups at all
+  // trivially satisfies this (0 === 0) — nothing to flag.
+  const allProofsResolved =
+    proofGroupSummary.activeGroupCount ===
+    proofGroupSummary.approvedCount +
+      proofGroupSummary.readyForExportCount +
+      proofGroupSummary.exportedCount +
+      proofGroupSummary.noProofRequiredCount;
+
   return {
     id: row.id,
     orderNumber: row.orderNumber,
@@ -328,6 +365,7 @@ function toBoardCard(
     hasDecorationLineMarker: decorationLineMarkerOrderIds.has(row.id),
     hasEmbroideryLineMarker: embroideryLineMarkerOrderIds.has(row.id),
     hasCustomerNote: Boolean(row.noteFromCustomer?.trim()),
+    hasApprovalOrPaymentIssue: !allProofsResolved || row.financialStatus !== "PAID",
     columnKey: getBoardColumnKey(row),
     lines: row.lines.map((line) => ({
       id: line.id,
@@ -339,7 +377,7 @@ function toBoardCard(
     })),
     lineCount: row._count.lines,
     proofGroupCount: row._count.proofGroups,
-    proofGroupSummary: summarizeCardProofGroups(row.proofGroups, blockedProofGroupIds, staffNames),
+    proofGroupSummary,
     assignment: pickPrimaryAssignment(row.assignments),
     nearestDueDate: pickNearestDueDate(row.dueDates, now),
     integrationIssues: row.integrationFailures.map((failure) => ({
