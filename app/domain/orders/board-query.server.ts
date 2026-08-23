@@ -188,7 +188,7 @@ export interface BoardCard {
   hasOpenExceptionCase: boolean;
   /** At least one line has a customer-uploaded file (OPTIS/Shopify FILE_UPLOAD property) linked via CustomerArtworkAsset. */
   hasCustomerUpload: boolean;
-  /** At least one line's Shopify property name/value contains a decoration marker ("_bssIntegrate", "Printing", or "Printed"). */
+  /** At least one line's Shopify property name/value contains a decoration marker ("Printing" or "Printed"). */
   hasDecorationLineMarker: boolean;
   /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
   hasEmbroideryLineMarker: boolean;
@@ -547,11 +547,12 @@ async function loadOrderIdsWithCustomerUpload(orderIds: string[]): Promise<Set<s
 // Shop-requested markers indicating a line needs decoration (print) attention
 // — checked as a case-insensitive substring against both the raw Shopify
 // line-property name and value, since we don't know in advance which side a
-// given integration puts the marker on (e.g. BSS's own "_bssIntegrate"
-// property name vs. an OPTIS-style "Printing"/"Printed" value). Embroidery is
-// deliberately excluded here — it gets its own blue tint below instead of
-// the pink one these markers drive.
-const DECORATION_LINE_MARKERS = ["_bssIntegrate", "Printing", "Printed"];
+// given integration puts the marker on (an OPTIS-style "Printing"/"Printed"
+// value). "_bssIntegrate" was removed — the shop found it was tinting orders
+// pink that had no actual printing involved. Embroidery is deliberately
+// excluded here too — it gets its own blue tint below instead of the pink
+// one these markers drive.
+const DECORATION_LINE_MARKERS = ["Printing", "Printed"];
 
 // Same substring/case-insensitivity rules as DECORATION_LINE_MARKERS, but its
 // own array/tint so an embroidery line reads as light blue on the board

@@ -342,7 +342,7 @@ describe("OrderCard", () => {
     );
   });
 
-  it("also tints the card light pink when a line carries a decoration marker (_bssIntegrate/Printing/Printed)", () => {
+  it("also tints the card light pink when a line carries a decoration marker (Printing/Printed)", () => {
     renderCard(makeCard({ orderNumber: "#1005", hasDecorationLineMarker: true }), true);
     expect(screen.getByRole("link", { name: "#1005" }).closest("div.rounded-lg")).toHaveClass(
       "bg-accent-pink",

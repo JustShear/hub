@@ -425,7 +425,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
     const property = await db.shopifyLineProperty.create({
-      data: { orderLineId: markedLine.id, name: "_bssIntegrate", value: "true" },
+      data: { orderLineId: markedLine.id, name: "Printing note", value: "Printing" },
     });
 
     const plainOrder = await db.shopifyOrder.create({
@@ -451,6 +451,46 @@ describe("loadBoardColumns (integration)", () => {
     const cards = result.columns.flatMap((c) => c.cards);
     expect(cards.find((c) => c.id === markedOrder.id)?.hasDecorationLineMarker).toBe(true);
     expect(cards.find((c) => c.id === plainOrder.id)?.hasDecorationLineMarker).toBe(false);
+
+    await db.shopifyLineProperty.delete({ where: { id: property.id } });
+  });
+
+  it('does NOT report hasDecorationLineMarker for a "_bssIntegrate" property alone — the shop found it tinting orders pink with no actual printing involved', async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(order.id);
+    const line = await db.shopifyOrderLine.create({
+      data: {
+        orderId: order.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Personalised Polo",
+        quantity: 1,
+      },
+    });
+    const property = await db.shopifyLineProperty.create({
+      data: { orderLineId: line.id, name: "_bssIntegrate", value: "true" },
+    });
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
+    expect(card?.hasDecorationLineMarker).toBe(false);
 
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
