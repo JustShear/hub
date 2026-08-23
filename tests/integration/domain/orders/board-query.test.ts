@@ -495,10 +495,10 @@ describe("loadBoardColumns (integration)", () => {
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
 
-  it('reports hasDecorationLineMarker for a line whose product title is "Add-Ons" or contains "printing", with no line property at all', async () => {
+  it('reports hasDecorationLineMarker for a line property named/valued "Add-Ons" — that\'s order information, not a product name', async () => {
     const shop = await db.shop.findFirstOrThrow();
 
-    const addOnsOrder = await db.shopifyOrder.create({
+    const order = await db.shopifyOrder.create({
       data: {
         shopId: shop.id,
         shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
@@ -509,15 +509,34 @@ describe("loadBoardColumns (integration)", () => {
         workflowStatus: OrderStatus.NEW,
       },
     });
-    createdOrderIds.push(addOnsOrder.id);
-    await db.shopifyOrderLine.create({
+    createdOrderIds.push(order.id);
+    const line = await db.shopifyOrderLine.create({
       data: {
-        orderId: addOnsOrder.id,
+        orderId: order.id,
         shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
-        productTitle: "Add-Ons",
+        productTitle: "Personalised Polo",
         quantity: 1,
       },
     });
+    const property = await db.shopifyLineProperty.create({
+      data: { orderLineId: line.id, name: "Add-Ons", value: "Gift wrap" },
+    });
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
+    expect(card?.hasDecorationLineMarker).toBe(true);
+
+    await db.shopifyLineProperty.delete({ where: { id: property.id } });
+  });
+
+  it('reports hasDecorationLineMarker for a line whose product title contains "printing", with no line property at all', async () => {
+    const shop = await db.shop.findFirstOrThrow();
 
     const printingOrder = await db.shopifyOrder.create({
       data: {
@@ -569,7 +588,6 @@ describe("loadBoardColumns (integration)", () => {
     });
 
     const cards = result.columns.flatMap((c) => c.cards);
-    expect(cards.find((c) => c.id === addOnsOrder.id)?.hasDecorationLineMarker).toBe(true);
     expect(cards.find((c) => c.id === printingOrder.id)?.hasDecorationLineMarker).toBe(true);
     expect(cards.find((c) => c.id === plainOrder.id)?.hasDecorationLineMarker).toBe(false);
   });

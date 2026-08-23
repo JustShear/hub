@@ -188,7 +188,7 @@ export interface BoardCard {
   hasOpenExceptionCase: boolean;
   /** At least one line has a customer-uploaded file (OPTIS/Shopify FILE_UPLOAD property) linked via CustomerArtworkAsset. */
   hasCustomerUpload: boolean;
-  /** At least one line's Shopify property name/value contains a decoration marker ("Printing" or "Printed"), or a line's product title contains "Add-Ons" or "printing". */
+  /** At least one line's Shopify property name/value contains a decoration marker ("Printing", "Printed", or "Add-Ons"), or a line's product title contains "printing". */
   hasDecorationLineMarker: boolean;
   /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
   hasEmbroideryLineMarker: boolean;
@@ -548,11 +548,11 @@ async function loadOrderIdsWithCustomerUpload(orderIds: string[]): Promise<Set<s
 // — checked as a case-insensitive substring against both the raw Shopify
 // line-property name and value, since we don't know in advance which side a
 // given integration puts the marker on (an OPTIS-style "Printing"/"Printed"
-// value). "_bssIntegrate" was removed — the shop found it was tinting orders
-// pink that had no actual printing involved. Embroidery is deliberately
-// excluded here too — it gets its own blue tint below instead of the pink
-// one these markers drive.
-const DECORATION_LINE_MARKERS = ["Printing", "Printed"];
+// value, or an "Add-Ons" line-property entry). "_bssIntegrate" was removed —
+// the shop found it was tinting orders pink that had no actual printing
+// involved. Embroidery is deliberately excluded here too — it gets its own
+// blue tint below instead of the pink one these markers drive.
+const DECORATION_LINE_MARKERS = ["Printing", "Printed", "Add-Ons"];
 
 // Same substring/case-insensitivity rules as DECORATION_LINE_MARKERS, but its
 // own array/tint so an embroidery line reads as light blue on the board
@@ -578,10 +578,11 @@ async function loadOrderIdsWithLinePropertyMarker(
 }
 
 // Same pink signal as DECORATION_LINE_MARKERS, but matched against the
-// line's own product title rather than a Shopify line property — an
-// "Add-Ons" product, or any product name containing "printing", tints the
-// card pink even when the line carries no property at all.
-const PINK_PRODUCT_TITLE_MARKERS = ["Add-Ons", "printing"];
+// line's own product title rather than a Shopify line property — any
+// product name containing "printing" tints the card pink even when the
+// line carries no property at all. ("Add-Ons" lives in DECORATION_LINE_MARKERS
+// instead — it's line-property information, not a product name.)
+const PINK_PRODUCT_TITLE_MARKERS = ["printing"];
 
 async function loadOrderIdsWithProductTitleMarker(
   orderIds: string[],
