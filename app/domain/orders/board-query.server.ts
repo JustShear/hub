@@ -188,7 +188,7 @@ export interface BoardCard {
   hasOpenExceptionCase: boolean;
   /** At least one line has a customer-uploaded file (OPTIS/Shopify FILE_UPLOAD property) linked via CustomerArtworkAsset. */
   hasCustomerUpload: boolean;
-  /** At least one line's Shopify property name/value contains a decoration marker ("Printing" or "Printed"). */
+  /** At least one line's Shopify property name/value contains a decoration marker ("Printing" or "Printed"), or a line's product title contains "Add-Ons" or "printing". */
   hasDecorationLineMarker: boolean;
   /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
   hasEmbroideryLineMarker: boolean;
@@ -577,6 +577,29 @@ async function loadOrderIdsWithLinePropertyMarker(
   return new Set(properties.map((p) => p.orderLine.orderId));
 }
 
+// Same pink signal as DECORATION_LINE_MARKERS, but matched against the
+// line's own product title rather than a Shopify line property — an
+// "Add-Ons" product, or any product name containing "printing", tints the
+// card pink even when the line carries no property at all.
+const PINK_PRODUCT_TITLE_MARKERS = ["Add-Ons", "printing"];
+
+async function loadOrderIdsWithProductTitleMarker(
+  orderIds: string[],
+  markers: string[],
+): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const lines = await db.shopifyOrderLine.findMany({
+    where: {
+      orderId: { in: orderIds },
+      OR: markers.map((marker) => ({
+        productTitle: { contains: marker, mode: "insensitive" as const },
+      })),
+    },
+    select: { orderId: true },
+  });
+  return new Set(lines.map((l) => l.orderId));
+}
+
 async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   blockedProofGroupIds: Set<string>;
   staffNames: Map<string, string>;
@@ -599,8 +622,9 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     warehousePickIndicators,
     openExceptionCaseOrderIds,
     customerUploadOrderIds,
-    decorationLineMarkerOrderIds,
+    decorationLinePropertyMarkerOrderIds,
     embroideryLineMarkerOrderIds,
+    pinkProductTitleMarkerOrderIds,
   ] = await Promise.all([
     loadBlockedProofGroupIds(proofGroupIds),
     resolveStaffNames(staffIds),
@@ -611,6 +635,16 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     loadOrderIdsWithCustomerUpload(orderIds),
     loadOrderIdsWithLinePropertyMarker(orderIds, DECORATION_LINE_MARKERS),
     loadOrderIdsWithLinePropertyMarker(orderIds, EMBROIDERY_LINE_MARKERS),
+    loadOrderIdsWithProductTitleMarker(orderIds, PINK_PRODUCT_TITLE_MARKERS),
+  ]);
+  // Two independent sources drive the same pink signal — a Shopify line
+  // property (DECORATION_LINE_MARKERS) or the line's own product title
+  // (PINK_PRODUCT_TITLE_MARKERS) — so they're unioned into the one Set
+  // toBoardCard/hasDecorationLineMarker already expects, rather than
+  // threading a second param through every board-loading entry point.
+  const decorationLineMarkerOrderIds = new Set([
+    ...decorationLinePropertyMarkerOrderIds,
+    ...pinkProductTitleMarkerOrderIds,
   ]);
   return {
     blockedProofGroupIds,

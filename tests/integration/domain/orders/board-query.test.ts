@@ -495,6 +495,85 @@ describe("loadBoardColumns (integration)", () => {
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
 
+  it('reports hasDecorationLineMarker for a line whose product title is "Add-Ons" or contains "printing", with no line property at all', async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const addOnsOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(addOnsOrder.id);
+    await db.shopifyOrderLine.create({
+      data: {
+        orderId: addOnsOrder.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Add-Ons",
+        quantity: 1,
+      },
+    });
+
+    const printingOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(printingOrder.id);
+    await db.shopifyOrderLine.create({
+      data: {
+        orderId: printingOrder.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Custom Printing Service",
+        quantity: 1,
+      },
+    });
+
+    const plainOrder = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(plainOrder.id);
+    await db.shopifyOrderLine.create({
+      data: {
+        orderId: plainOrder.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Personalised Polo",
+        quantity: 1,
+      },
+    });
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const cards = result.columns.flatMap((c) => c.cards);
+    expect(cards.find((c) => c.id === addOnsOrder.id)?.hasDecorationLineMarker).toBe(true);
+    expect(cards.find((c) => c.id === printingOrder.id)?.hasDecorationLineMarker).toBe(true);
+    expect(cards.find((c) => c.id === plainOrder.id)?.hasDecorationLineMarker).toBe(false);
+  });
+
   it("reports hasEmbroideryLineMarker (not hasDecorationLineMarker) for an order whose line carries an Embroidery property", async () => {
     const shop = await db.shop.findFirstOrThrow();
 
