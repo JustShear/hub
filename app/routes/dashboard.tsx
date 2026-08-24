@@ -6,6 +6,7 @@ import { hasPermission } from "~/auth/rbac";
 import { countUnresolvedIntegrationFailures } from "~/domain/integrations/count-unresolved.server";
 import { getWarehouseDashboardMetrics } from "~/domain/warehouse/dashboard-metrics.server";
 import { getExceptionsDashboardMetrics } from "~/domain/exceptions/exceptions-dashboard-metrics.server";
+import { getProductFulfillmentMetrics } from "~/domain/orders/product-fulfillment-metrics.server";
 import { PageHeader } from "~/components/shared/PageHeader";
 import { EmptyState } from "~/components/shared/EmptyState";
 
@@ -17,23 +18,29 @@ export async function loader({ request }: Route.LoaderArgs) {
   const staffUser = await requireStaffUser(request);
   const canViewWarehouseQueue = hasPermission(staffUser, "warehouse_picks.view");
   const canViewExceptionCases = hasPermission(staffUser, "exception_cases.view");
-  const [integrationIssueCount, warehouseMetrics, exceptionsMetrics] = await Promise.all([
-    countUnresolvedIntegrationFailures(staffUser.shopId),
-    canViewWarehouseQueue ? getWarehouseDashboardMetrics(staffUser.shopId) : Promise.resolve(null),
-    canViewExceptionCases
-      ? getExceptionsDashboardMetrics(staffUser.shopId)
-      : Promise.resolve(null),
-  ]);
+  const [integrationIssueCount, warehouseMetrics, exceptionsMetrics, productMetrics] =
+    await Promise.all([
+      countUnresolvedIntegrationFailures(staffUser.shopId),
+      canViewWarehouseQueue
+        ? getWarehouseDashboardMetrics(staffUser.shopId)
+        : Promise.resolve(null),
+      canViewExceptionCases
+        ? getExceptionsDashboardMetrics(staffUser.shopId)
+        : Promise.resolve(null),
+      getProductFulfillmentMetrics(staffUser.shopId),
+    ]);
   return {
     staffUser,
     integrationIssueCount,
     warehouseMetrics,
     exceptionsMetrics,
+    productMetrics,
   };
 }
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
-  const { staffUser, integrationIssueCount, warehouseMetrics, exceptionsMetrics } = loaderData;
+  const { staffUser, integrationIssueCount, warehouseMetrics, exceptionsMetrics, productMetrics } =
+    loaderData;
 
   const shortcuts = [
     warehouseMetrics
@@ -143,6 +150,18 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
           </div>
         </section>
       ) : null}
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold text-ink">Products on order, not yet fulfilled</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {productMetrics.map((metric) => (
+            <div key={metric.productTitle} className="rounded-lg border border-border bg-surface p-3">
+              <p className="text-xl font-semibold text-ink">{metric.unfulfilledQuantity}</p>
+              <p className="text-xs text-muted">{metric.productTitle}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <p className="text-sm text-muted">
         Packing and full inventory tracking are coming in a future milestone — this dashboard will

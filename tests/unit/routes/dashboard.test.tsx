@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import Dashboard from "~/routes/dashboard";
 import type { StaffUserWithPermissions } from "~/auth/staff-session.server";
+import type { ProductFulfillmentMetric } from "~/domain/orders/product-fulfillment-metrics.server";
 
 function staffUserWith(permissionKeys: string[]): StaffUserWithPermissions {
   return {
@@ -16,13 +17,17 @@ function staffUserWith(permissionKeys: string[]): StaffUserWithPermissions {
   };
 }
 
-function renderDashboard(staffUser: StaffUserWithPermissions, integrationIssueCount: number) {
+function renderDashboard(
+  staffUser: StaffUserWithPermissions,
+  integrationIssueCount: number,
+  productMetrics: ProductFulfillmentMetric[] = [],
+) {
   const Stub = createRoutesStub([
     {
       path: "/dashboard",
       Component: Dashboard,
       loader() {
-        return { staffUser, integrationIssueCount };
+        return { staffUser, integrationIssueCount, productMetrics };
       },
     },
   ]);
@@ -64,5 +69,16 @@ describe("Dashboard route", () => {
   it("names Kanban/production modules as a future milestone rather than faking them", async () => {
     renderDashboard(staffUserWith([]), 0);
     expect(await screen.findByText(/coming in a future milestone/i)).toBeInTheDocument();
+  });
+
+  it("shows a tile per tracked product with its real unfulfilled quantity", async () => {
+    renderDashboard(staffUserWith([]), 0, [
+      { productTitle: "Burning Diesel", unfulfilledQuantity: 4 },
+      { productTitle: "Just Shear", unfulfilledQuantity: 0 },
+    ]);
+
+    expect(await screen.findByText("Burning Diesel")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.getByText("Just Shear")).toBeInTheDocument();
   });
 });
