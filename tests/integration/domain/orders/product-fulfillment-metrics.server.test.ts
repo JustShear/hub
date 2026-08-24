@@ -39,12 +39,14 @@ describe("getProductFulfillmentMetrics (integration)", () => {
     productTitle: string,
     quantity: number,
     fulfilledQuantity: number | null,
+    variantTitle: string | null = null,
   ) {
     return db.shopifyOrderLine.create({
       data: {
         orderId,
         shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
         productTitle,
+        variantTitle,
         quantity,
         fulfilledQuantity,
       },
@@ -81,6 +83,36 @@ describe("getProductFulfillmentMetrics (integration)", () => {
 
     const otherTracked = metrics.filter((m) => m.productTitle !== "Burning Diesel");
     expect(otherTracked.every((m) => m.unfulfilledQuantity === 0)).toBe(true);
+  });
+
+  it("matches a tracked name that's only part of a longer product title (real Shopify titles rarely match exactly)", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await createOrder(OrderStatus.NEW);
+    await createLine(order.id, "Singlet — Converting Fuel into Good Times Print", 3, 1); // 2 unfulfilled
+
+    const metrics = await getProductFulfillmentMetrics(shop.id);
+    expect(
+      metrics.find((m) => m.productTitle === "Converting Fuel into Good Times")
+        ?.unfulfilledQuantity,
+    ).toBe(2);
+  });
+
+  it("matches a tracked name carried on the variant title instead of the product title", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await createOrder(OrderStatus.NEW);
+    await createLine(order.id, "Mens Singlet", 4, 0, "Bank of Dad / Navy / Large");
+
+    const metrics = await getProductFulfillmentMetrics(shop.id);
+    expect(metrics.find((m) => m.productTitle === "Bank of Dad")?.unfulfilledQuantity).toBe(4);
+  });
+
+  it("matches a straight apostrophe against a curly one in real data", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await createOrder(OrderStatus.NEW);
+    await createLine(order.id, "Dad’s Day Tee", 2, 0);
+
+    const metrics = await getProductFulfillmentMetrics(shop.id);
+    expect(metrics.find((m) => m.productTitle === "Dad's Day")?.unfulfilledQuantity).toBe(2);
   });
 
   it("never lets unfulfilled quantity go negative", async () => {

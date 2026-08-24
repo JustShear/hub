@@ -18,10 +18,13 @@ export interface ProductFulfillmentMetric {
   unfulfilledQuantity: number;
 }
 
-// Case/whitespace-insensitive — Shopify's own title casing isn't guaranteed
-// to stay byte-identical to what's typed into TRACKED_PRODUCT_TITLES.
-function normalize(title: string): string {
-  return title.trim().toLowerCase();
+// Case/whitespace-insensitive, and normalizes curly quotes to straight ones
+// (Shopify/browser autocorrect can turn "Dad's Day" into "Dad’s Day") —
+// matched as a SUBSTRING, not an exact title, since real product titles are
+// very unlikely to be exactly one of these names verbatim (e.g. "Singlet —
+// Burning Diesel" or "Burning Diesel / Navy / Large" as a variant title).
+function normalize(text: string): string {
+  return text.trim().toLowerCase().replace(/[‘’]/g, "'");
 }
 
 // Real counts only — no invented targets/percentages, same convention as
@@ -29,27 +32,37 @@ function normalize(title: string): string {
 // currently-active orders the same way the board is (workflowStatus not in
 // SPECIAL_STATUSES — on hold/cancelled/archived/fulfilled orders don't
 // count), then unfulfilled units per line = quantity minus fulfilledQuantity
-// (Shopify's own line-level fulfillment split, already imported).
+// (Shopify's own line-level fulfillment split, already imported). Checks
+// both productTitle and variantTitle, since we don't know in advance which
+// one actually carries the design name on a matching line — same reasoning
+// as the board's own line-property marker matching.
 export async function getProductFulfillmentMetrics(
   shopId: string,
 ): Promise<ProductFulfillmentMetric[]> {
+  // Deliberately no productTitle/variantTitle filter at the DB level — a
+  // Postgres `contains` runs against the raw bytes, so it wouldn't find a
+  // curly-apostrophe "Dad’s Day" against a straight-apostrophe query string.
+  // All substring matching happens in JS below, after normalize() has
+  // already reconciled that kind of drift.
   const lines = await db.shopifyOrderLine.findMany({
-    where: {
-      order: { shopId, workflowStatus: { notIn: Object.values(SPECIAL_STATUSES) } },
-      productTitle: { in: TRACKED_PRODUCT_TITLES, mode: "insensitive" },
-    },
-    select: { productTitle: true, quantity: true, fulfilledQuantity: true },
+    where: { order: { shopId, workflowStatus: { notIn: Object.values(SPECIAL_STATUSES) } } },
+    select: { productTitle: true, variantTitle: true, quantity: true, fulfilledQuantity: true },
   });
 
   const totals = new Map<string, number>();
   for (const line of lines) {
     const unfulfilled = Math.max(0, line.quantity - (line.fulfilledQuantity ?? 0));
-    const key = normalize(line.productTitle);
-    totals.set(key, (totals.get(key) ?? 0) + unfulfilled);
+    if (unfulfilled === 0) continue;
+    const haystack = normalize(`${line.productTitle} ${line.variantTitle ?? ""}`);
+    for (const title of TRACKED_PRODUCT_TITLES) {
+      if (haystack.includes(normalize(title))) {
+        totals.set(title, (totals.get(title) ?? 0) + unfulfilled);
+      }
+    }
   }
 
   return TRACKED_PRODUCT_TITLES.map((productTitle) => ({
     productTitle,
-    unfulfilledQuantity: totals.get(normalize(productTitle)) ?? 0,
+    unfulfilledQuantity: totals.get(productTitle) ?? 0,
   }));
 }
