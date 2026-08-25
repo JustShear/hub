@@ -174,6 +174,12 @@ describe("getBoardColumnKey", () => {
       ).toBe("pre_order");
     });
 
+    it('"Exported for Print" still outranks "emailed" if both tags happen to be present — moving a card back to Waiting on Customer requires the drop action to actually remove the tag, not just rely on matchPriority', () => {
+      expect(getBoardColumnKey(order({ tags: ["Exported for Print", "emailed"] }))).toBe(
+        "exported_for_print",
+      );
+    });
+
     it("Exported for Print still outranks PRE_ORDER — real export progress isn't masked by a stale workflowStatus", () => {
       expect(
         getBoardColumnKey(
@@ -226,12 +232,12 @@ describe("getBoardColumn", () => {
     });
   });
 
-  it("gives Waiting on Customer a shopifyTag drop action, add-only (no removeTags)", () => {
+  it('gives Waiting on Customer a shopifyTag drop action that removes "Exported for Print" — needed to move a card back from that column', () => {
     const column = getBoardColumn("waiting_on_customer");
     expect(column.dropAction).toEqual({
       type: "shopifyTag",
       addTag: "emailed",
-      removeTags: [],
+      removeTags: ["Exported for Print"],
     });
   });
 

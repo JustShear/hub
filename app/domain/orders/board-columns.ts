@@ -163,18 +163,24 @@ const RULES: RawColumnRule[] = [
     // now also syncs that tag, for staff who've just contacted the customer
     // outside of Shopify (a phone call, in person) and want the board to
     // reflect that immediately rather than waiting on a separate Shopify
-    // tagging step. Add-only (no removeTags) — deliberately outranks
-    // changes_requested and proof_sent (the two states staff actually drag
-    // *from* when following up: "addressed their changes and re-emailed
-    // them" or "chased them by phone instead of email"), since neither
-    // "proof_rejected" nor "proof_sent" gets removed by this add-only drop.
-    // Without this, dragging from either of those columns wrote the real
-    // Shopify tag but the card never visibly moved — the same class of bug
-    // as Pre-Order's match-priority fix below. Still outranked by
-    // proof_approved/pre_order/exported_for_print/pack — a stale "emailed"
-    // tag should never mask a genuinely more-advanced state.
+    // tagging step. Mostly add-only — deliberately outranks changes_requested
+    // and proof_sent (the two states staff actually drag *from* when
+    // following up: "addressed their changes and re-emailed them" or "chased
+    // them by phone instead of email"), since neither "proof_rejected" nor
+    // "proof_sent" gets removed by this drop. Without this, dragging from
+    // either of those columns wrote the real Shopify tag but the card never
+    // visibly moved — the same class of bug as Pre-Order's match-priority
+    // fix below. Still outranked by proof_approved/pre_order/pack — a stale
+    // "emailed" tag should never mask a genuinely more-advanced state.
+    //
+    // The one exception is "Exported for Print": that column's own
+    // matchPriority (2) outranks this one (5), so — unlike the columns
+    // above — simply adding "emailed" wouldn't be enough to move a card back
+    // here; the "Exported for Print" tag has to actually come off, since
+    // staff need to be able to walk an order back to Waiting on Customer
+    // after an export turns out to be premature.
     interactive: true,
-    dropAction: { type: "shopifyTag", addTag: "emailed", removeTags: [] },
+    dropAction: { type: "shopifyTag", addTag: "emailed", removeTags: ["Exported for Print"] },
     matchPriority: 5,
     ownMatches: (order) => order.tags.includes("emailed"),
     ownWhere: { tags: { has: "emailed" } },
