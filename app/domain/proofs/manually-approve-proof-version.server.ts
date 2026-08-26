@@ -1,6 +1,7 @@
-import { ActorType } from "@prisma/client";
+import { ActorType, type OrderProofSummary } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import { recalculateOrderProofSummary } from "~/domain/proofs/order-proof-summary.server";
+import { syncOrderLifecycleTag } from "~/domain/orders/sync-order-lifecycle-tag.server";
 
 export interface ManuallyApproveProofVersionInput {
   shopId: string;
@@ -22,9 +23,11 @@ class AlreadyResolvedError extends Error {}
  * Lets staff record a proof as approved without the customer ever completing
  * the token-based flow — e.g. the customer approved by phone or in person.
  * Mirrors the state transition recordCustomerProofResponse.server.ts makes
- * for an APPROVED response, but is always recorded as a ManualOverride since
- * it's a deliberate substitute for the customer's own action, never a silent
- * equivalent of it.
+ * for an APPROVED response — including the "proof_accepted" Shopify tag
+ * sync, so the order's Kanban card moves to Proof Approved the same way it
+ * would for a real customer response — but is always recorded as a
+ * ManualOverride since it's a deliberate substitute for the customer's own
+ * action, never a silent equivalent of it.
  */
 export async function manuallyApproveProofVersion(
   input: ManuallyApproveProofVersionInput,
@@ -48,8 +51,9 @@ export async function manuallyApproveProofVersion(
     };
   }
 
+  let newProofSummary: OrderProofSummary;
   try {
-    await db.$transaction(async (tx) => {
+    newProofSummary = await db.$transaction(async (tx) => {
       const versionUpdate = await tx.proofVersion.updateMany({
         where: { id: version.id, status: { in: ["SENT", "VIEWED"] } },
         data: { status: "APPROVED", respondedAt: new Date(), approvedAt: new Date() },
@@ -129,7 +133,7 @@ export async function manuallyApproveProofVersion(
         }
       }
 
-      await recalculateOrderProofSummary(tx, {
+      return recalculateOrderProofSummary(tx, {
         shopId: input.shopId,
         orderId: version.proofGroup.orderId,
         actorStaffId: input.staffUserId,
@@ -144,6 +148,30 @@ export async function manuallyApproveProofVersion(
       };
     }
     throw error;
+  }
+
+  // Same tag sync recordCustomerProofResponse.server.ts does for a customer's
+  // own APPROVED response — a manual approval needs to move the Kanban card
+  // to Proof Approved too, not just update internal proof-group state.
+  // Driven off the recalculated order-level aggregate for the same reason:
+  // an order can have multiple proof groups, and branching on this one call's
+  // outcome alone could flip the tag backwards depending on which group
+  // happens to resolve last.
+  try {
+    if (
+      newProofSummary === "PARTIALLY_APPROVED" ||
+      newProofSummary === "ALL_REQUIRED_PROOFS_APPROVED"
+    ) {
+      await syncOrderLifecycleTag({
+        shopId: input.shopId,
+        orderId: version.proofGroup.orderId,
+        addTag: "proof_accepted",
+        removeTags: ["proof_sent", "proof_rejected"],
+      });
+    }
+  } catch {
+    // Defensive backstop only — see send-proof-request.server.ts's identical
+    // comment on its own syncOrderLifecycleTag call.
   }
 
   return { outcome: "approved" };

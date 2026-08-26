@@ -79,6 +79,35 @@ describe("manuallyApproveProofVersion (integration)", () => {
     expect(override.staffUserId).toBe(staffUser.id);
   });
 
+  // A manual approval should move the order's Kanban card to Proof Approved
+  // the same way a real customer response does — same honest-failure
+  // convention as every other Shopify-tag sync in this codebase: this test's
+  // order has a fake shopifyOrderGid/shop credentials, so the real Shopify
+  // call can't succeed, but the sync must still be genuinely attempted
+  // (recorded as an IntegrationFailure) rather than silently skipped.
+  it('attempts to sync the "proof_accepted" Shopify tag (records the attempt even though the real API call fails in tests)', async () => {
+    const { proofVersionId, staffUser, order } = await sendSingleGroup();
+
+    const result = await manuallyApproveProofVersion({
+      shopId: order.shopId,
+      proofVersionId,
+      reason: "Customer approved by phone",
+      staffUserId: staffUser.id,
+    });
+
+    expect(result).toMatchObject({ outcome: "approved" });
+
+    const failure = await db.integrationFailure.findFirst({
+      where: {
+        shopId: order.shopId,
+        integration: "SHOPIFY_TAG_UPDATE",
+        action: "order_tag_sync",
+        relatedOrderId: order.id,
+      },
+    });
+    expect(failure).not.toBeNull();
+  });
+
   it("rejects a version that isn't awaiting a response", async () => {
     const { proofVersionId, staffUser, order } = await sendSingleGroup();
 
