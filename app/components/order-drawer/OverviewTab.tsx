@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type {
   OrderDetail,
   OrderDetailIntegrationIssue,
@@ -63,6 +65,10 @@ export function OverviewTab({
   canEditDueDates,
 }: OverviewTabProps) {
   const latestNote = order.notes[0] ?? null;
+  // Collapsed by default — status/priority/assignment/due dates aren't
+  // consulted often day to day, so they stay one click away instead of
+  // permanently taking up space at the top of every order drawer.
+  const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-6">
@@ -89,37 +95,56 @@ export function OverviewTab({
       ) : null}
 
       <section>
-        <h3 className="text-sm font-semibold text-ink">Internal workflow (Production Hub)</h3>
-        <p className="mt-0.5 text-xs text-muted">
-          Editable here with the right permission — Shopify never overwrites these fields.
-        </p>
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Workflow status" value={ORDER_STATUS_LABELS[order.workflowStatus]} />
-          <Field
-            label="Time in this status"
-            value={`${order.daysInState} day${order.daysInState === 1 ? "" : "s"}`}
-          />
-          <PriorityEditor currentPriority={order.priority} canEdit={canEditPriority} />
-          <AssignmentEditor
-            currentStaffUserId={order.assignment?.staffUserId ?? null}
-            currentStaffUserName={order.assignment?.staffUserName ?? null}
-            assignableStaff={assignableStaff}
-            canEdit={canEditAssignment}
-          />
-        </div>
-        <div className="mt-4">
-          <DueDatesEditor dueDates={order.dueDates} canEdit={canEditDueDates} />
-        </div>
-        {latestNote ? (
-          <div className="mt-4">
-            <h4 className="text-xs font-medium text-muted">Latest internal note</h4>
-            <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-ink">
-              {latestNote.body}
+        <button
+          type="button"
+          onClick={() => {
+            setWorkflowSectionOpen((v) => !v);
+          }}
+          className="flex w-full items-center gap-2 text-left"
+          aria-expanded={workflowSectionOpen}
+        >
+          {workflowSectionOpen ? (
+            <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted" />
+          ) : (
+            <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted" />
+          )}
+          <h3 className="text-sm font-semibold text-ink">Internal workflow (Production Hub)</h3>
+        </button>
+
+        {workflowSectionOpen ? (
+          <>
+            <p className="mt-0.5 pl-6 text-xs text-muted">
+              Editable here with the right permission — Shopify never overwrites these fields.
             </p>
-            <p className="mt-0.5 text-xs text-muted">
-              {latestNote.authorStaffName} · {formatAuDate(latestNote.createdAt)}
-            </p>
-          </div>
+            <div className="mt-3 grid grid-cols-1 gap-4 pl-6 sm:grid-cols-2">
+              <Field label="Workflow status" value={ORDER_STATUS_LABELS[order.workflowStatus]} />
+              <Field
+                label="Time in this status"
+                value={`${order.daysInState} day${order.daysInState === 1 ? "" : "s"}`}
+              />
+              <PriorityEditor currentPriority={order.priority} canEdit={canEditPriority} />
+              <AssignmentEditor
+                currentStaffUserId={order.assignment?.staffUserId ?? null}
+                currentStaffUserName={order.assignment?.staffUserName ?? null}
+                assignableStaff={assignableStaff}
+                canEdit={canEditAssignment}
+              />
+            </div>
+            <div className="mt-4 pl-6">
+              <DueDatesEditor dueDates={order.dueDates} canEdit={canEditDueDates} />
+            </div>
+            {latestNote ? (
+              <div className="mt-4 pl-6">
+                <h4 className="text-xs font-medium text-muted">Latest internal note</h4>
+                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-ink">
+                  {latestNote.body}
+                </p>
+                <p className="mt-0.5 text-xs text-muted">
+                  {latestNote.authorStaffName} · {formatAuDate(latestNote.createdAt)}
+                </p>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </section>
 
