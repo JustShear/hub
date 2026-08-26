@@ -61,6 +61,13 @@ export function ProofGroupCard({
   const [expanded, setExpanded] = useState(false);
   const actionUrl = `/orders/${orderId}/proof-groups`;
   const isActive = group.status !== "CANCELLED" && group.status !== "NO_PROOF_REQUIRED";
+  // Mirrors cancel-proof-group.server.ts's CANCELLABLE_STATUSES — once a
+  // group has gone out to the customer (or beyond), it can no longer be
+  // cancelled, so don't offer a control that would only ever be rejected.
+  const canCancelStatus =
+    group.status === "NOT_STARTED" ||
+    group.status === "DRAFT_IN_PROGRESS" ||
+    group.status === "READY_TO_SEND";
   const linkedAssetIds = new Set(group.assets.map((a) => a.assetId));
   const linkedLineIds = new Set(group.orderLines.map((l) => l.orderLineId));
   const unlinkedLines = availableLines.filter((l) => !linkedLineIds.has(l.id));
@@ -202,7 +209,7 @@ export function ProofGroupCard({
             canCreateNotes={canCreateNotes}
           />
 
-          {canCancel && isActive ? (
+          {canCancel && canCancelStatus ? (
             <CancelGroupSection actionUrl={actionUrl} proofGroupId={group.id} />
           ) : null}
         </div>

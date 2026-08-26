@@ -1,4 +1,4 @@
-import { ActorType } from "@prisma/client";
+import { ActorType, type ProofGroupStatus } from "@prisma/client";
 import { db } from "~/lib/db.server";
 import { recalculateOrderProofSummary } from "~/domain/proofs/order-proof-summary.server";
 
@@ -12,12 +12,16 @@ export interface CancelProofGroupInput {
 export type CancelProofGroupResult =
   { outcome: "cancelled" } | { outcome: "already_there" } | { outcome: "rejected"; reason: string };
 
-// Milestone 08 only ever reaches NOT_STARTED / DRAFT_IN_PROGRESS /
-// READY_TO_SEND / NO_PROOF_REQUIRED before cancellation — none of those
-// represent an approved, sent, or exported item, so no override framework
-// is needed to cancel them here. A future milestone that introduces
-// APPROVED/SENT/EXPORTED_FOR_PRINT groups must add that guard before this
-// function can be reused to cancel one of those.
+// Shop-requested restriction: only a group that's been started but never
+// sent to the customer can be cancelled — once it's gone out (SENT/VIEWED/
+// CHANGES_REQUESTED/APPROVED/READY_FOR_EXPORT/EXPORTED_FOR_PRINT), the real
+// history needs to stay intact rather than be cancelled away.
+const CANCELLABLE_STATUSES: ProofGroupStatus[] = [
+  "NOT_STARTED",
+  "DRAFT_IN_PROGRESS",
+  "READY_TO_SEND",
+];
+
 export async function cancelProofGroup(
   input: CancelProofGroupInput,
 ): Promise<CancelProofGroupResult> {
@@ -30,6 +34,12 @@ export async function cancelProofGroup(
   if (group.status === "CANCELLED") {
     return { outcome: "already_there" };
   }
+  if (!CANCELLABLE_STATUSES.includes(group.status)) {
+    return {
+      outcome: "rejected",
+      reason: "Only a proof group that hasn't been sent to the customer yet can be cancelled.",
+    };
+  }
 
   const trimmedReason = input.reason.trim();
   if (!trimmedReason) {
@@ -38,7 +48,7 @@ export async function cancelProofGroup(
 
   const result = await db.$transaction(async (tx) => {
     const updateResult = await tx.proofGroup.updateMany({
-      where: { id: input.proofGroupId, status: { not: "CANCELLED" } },
+      where: { id: input.proofGroupId, status: { in: CANCELLABLE_STATUSES } },
       data: {
         status: "CANCELLED",
         cancelledAt: new Date(),

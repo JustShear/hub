@@ -4,6 +4,8 @@ import { createProofGroup } from "~/domain/proofs/create-proof-group.server";
 import { createProofVersion } from "~/domain/proofs/create-proof-version.server";
 import { cancelProofVersion } from "~/domain/proofs/cancel-proof-version.server";
 import { cancelProofGroup } from "~/domain/proofs/cancel-proof-group.server";
+import { sendProofRequest } from "~/domain/proofs/send-proof-request.server";
+import { manuallyApproveProofVersion } from "~/domain/proofs/manually-approve-proof-version.server";
 import { createProofTestTracker, PNG_BYTES } from "./helpers";
 
 describe("cancelProofGroup / cancelProofVersion (integration)", () => {
@@ -188,4 +190,99 @@ describe("cancelProofGroup / cancelProofVersion (integration)", () => {
 
     expect(second).toMatchObject({ outcome: "already_there" });
   });
+
+  // Shop-requested restriction: only a group that hasn't been sent to the
+  // customer yet can be cancelled — the real history of a sent/resolved
+  // proof needs to stay intact.
+  it("rejects cancelling a group that's already been sent to the customer", async () => {
+    const order = await tracker.createOrder();
+    const staffUser = await tracker.createStaffUser();
+    const { proofGroupId } = await tracker.createReadyGroup({
+      orderId: order.id,
+      shopId: order.shopId,
+      staffUserId: staffUser.id,
+      name: "Already sent",
+    });
+    const sendResult = await sendProofRequest({
+      shopId: order.shopId,
+      orderId: order.id,
+      proofGroupIds: [proofGroupId],
+      staffMessage: null,
+      staffUserId: staffUser.id,
+    });
+    if (sendResult.outcome !== "sent") throw new Error("setup failed to send");
+
+    const result = await cancelProofGroup({
+      shopId: order.shopId,
+      proofGroupId,
+      reason: "Trying to cancel after sending.",
+      staffUserId: staffUser.id,
+    });
+
+    expect(result).toMatchObject({ outcome: "rejected" });
+    const group = await db.proofGroup.findUniqueOrThrow({ where: { id: proofGroupId } });
+    expect(group.status).toBe("SENT");
+  });
+
+  it("rejects cancelling a group that's already been approved", async () => {
+    const order = await tracker.createOrder();
+    const staffUser = await tracker.createStaffUser();
+    const { proofGroupId, proofVersionId } = await tracker.createReadyGroup({
+      orderId: order.id,
+      shopId: order.shopId,
+      staffUserId: staffUser.id,
+      name: "Already approved",
+    });
+    const sendResult = await sendProofRequest({
+      shopId: order.shopId,
+      orderId: order.id,
+      proofGroupIds: [proofGroupId],
+      staffMessage: null,
+      staffUserId: staffUser.id,
+    });
+    if (sendResult.outcome !== "sent") throw new Error("setup failed to send");
+    const approveResult = await manuallyApproveProofVersion({
+      shopId: order.shopId,
+      proofVersionId,
+      reason: "Customer approved by phone",
+      staffUserId: staffUser.id,
+    });
+    if (approveResult.outcome !== "approved") throw new Error("setup failed to approve");
+
+    const result = await cancelProofGroup({
+      shopId: order.shopId,
+      proofGroupId,
+      reason: "Trying to cancel after approval.",
+      staffUserId: staffUser.id,
+    });
+
+    expect(result).toMatchObject({ outcome: "rejected" });
+    const group = await db.proofGroup.findUniqueOrThrow({ where: { id: proofGroupId } });
+    expect(group.status).toBe("APPROVED");
+  });
+
+  it.each(["NOT_STARTED", "DRAFT_IN_PROGRESS", "READY_TO_SEND"] as const)(
+    "still allows cancelling a group in the %s status",
+    async (status) => {
+      const order = await tracker.createOrder();
+      const staffUser = await tracker.createStaffUser();
+      const { proofGroupId } = await createGroupWithVersion(staffUser.id, order.id, order.shopId);
+      // createGroupWithVersion always lands at READY_TO_SEND (a version
+      // exists) — force the other two pre-send statuses directly for this
+      // parameterized case, since there's no domain action that un-sends a
+      // version to get back to NOT_STARTED/DRAFT_IN_PROGRESS.
+      if (status !== "READY_TO_SEND") {
+        await db.proofGroup.update({ where: { id: proofGroupId }, data: { status } });
+      }
+
+      const result = await cancelProofGroup({
+        shopId: order.shopId,
+        proofGroupId,
+        reason: `Cancelling from ${status}.`,
+        staffUserId: staffUser.id,
+      });
+
+      expect(result).toMatchObject({ outcome: "cancelled" });
+    },
+  );
 });
