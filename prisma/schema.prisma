@@ -163,6 +163,16 @@ enum Theme {
   CATS
 }
 
+// A staff-forced Kanban card tint (ShopifyOrder.cardTintOverride) — nullable
+// (unlike this project's other enum columns) because "no override, defer to
+// the automatic signals" is a genuinely different state from "explicitly
+// forced to no tint" (NONE).
+enum CardTintOverride {
+  PINK
+  BLUE
+  NONE
+}
+
 enum PropertyDetectedType {
   TEXT
   SELECTION
@@ -220,12 +230,14 @@ model ShopifyOrder {
   // OrderWarehousePickSummary.
   warehousePickSummary    OrderWarehousePickSummary @default(NOT_STARTED)
   priority                Priority                  @default(NORMAL)
-  // Manual staff flag — "this order still needs a print add-on applied
-  // before it can proceed." Purely a Hub-side note, never synced to a
-  // Shopify tag. Tints the Kanban card the same light pink used for a
-  // customer file upload — the shop asked to keep it simple rather than
-  // distinguish the two reasons visually.
-  needsPrinting           Boolean                   @default(false)
+  // Manual staff override for the Kanban card's tint — purely a Hub-side
+  // note, never synced to Shopify. Null means "automatic" (the card follows
+  // whatever hasEmbroideryLineMarker/hasCustomerUpload/hasDecorationLineMarker
+  // compute); PINK/BLUE/NONE forces that tint regardless, for when an order
+  // changes after the fact and the automatic signals go stale (e.g. a
+  // customer switches from embroidery to printing or drops a decoration
+  // entirely).
+  cardTintOverride        CardTintOverride?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

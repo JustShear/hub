@@ -20,7 +20,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     priority: Priority.NORMAL,
     tags: [],
     isPreorder: false,
-    needsPrinting: false,
+    cardTintOverride: null,
     isWaitingOnCustomer: false,
     hasCustomerResponseAlert: false,
     isApprovedNotExported: false,
@@ -335,11 +335,35 @@ describe("OrderCard", () => {
     );
   });
 
-  it("also tints the card light pink when manually marked as needing printing", () => {
-    renderCard(makeCard({ orderNumber: "#1004", needsPrinting: true }), true);
+  it("tints the card light pink when the manual override is set to PINK", () => {
+    renderCard(makeCard({ orderNumber: "#1004", cardTintOverride: "PINK" }), true);
     expect(screen.getByRole("link", { name: "#1004" }).closest("div.rounded-lg")).toHaveClass(
       "bg-accent-pink",
     );
+  });
+
+  it("tints the card blue when the manual override is set to BLUE, even with no automatic embroidery signal", () => {
+    renderCard(makeCard({ orderNumber: "#1008", cardTintOverride: "BLUE" }), true);
+    expect(screen.getByRole("link", { name: "#1008" }).closest("div.rounded-lg")).toHaveClass(
+      "bg-accent-blue",
+    );
+  });
+
+  it("forces no tint when the manual override is set to NONE, even with automatic pink/blue signals present", () => {
+    renderCard(
+      makeCard({
+        orderNumber: "#1009",
+        cardTintOverride: "NONE",
+        hasEmbroideryLineMarker: true,
+        hasCustomerUpload: true,
+        hasDecorationLineMarker: true,
+      }),
+      true,
+    );
+    const card = screen.getByRole("link", { name: "#1009" }).closest("div.rounded-lg");
+    expect(card).toHaveClass("bg-surface");
+    expect(card).not.toHaveClass("bg-accent-pink");
+    expect(card).not.toHaveClass("bg-accent-blue");
   });
 
   it("also tints the card light pink when a line carries a decoration marker (Printing/Printed)", () => {
@@ -362,7 +386,6 @@ describe("OrderCard", () => {
         orderNumber: "#1007",
         hasEmbroideryLineMarker: true,
         hasCustomerUpload: true,
-        needsPrinting: true,
         hasDecorationLineMarker: true,
       }),
       true,
@@ -372,14 +395,19 @@ describe("OrderCard", () => {
     expect(card).not.toHaveClass("bg-accent-pink");
   });
 
-  it("shows a Needs printing checkbox reflecting the card's current value", () => {
-    renderCard(makeCard({ needsPrinting: true }), true);
-    expect(screen.getByRole("checkbox", { name: /needs printing/i })).toBeChecked();
+  it("shows the colour selector reflecting the card's current override", () => {
+    renderCard(makeCard({ cardTintOverride: "PINK" }), true);
+    expect(screen.getByRole("combobox", { name: /colour/i })).toHaveValue("PINK");
   });
 
-  it("disables the Needs printing checkbox for a read-only (view-only) staff member", () => {
-    renderCard(makeCard({ needsPrinting: false }), false);
-    expect(screen.getByRole("checkbox", { name: /needs printing/i })).toBeDisabled();
+  it("defaults the colour selector to Auto when there's no manual override", () => {
+    renderCard(makeCard({ cardTintOverride: null }), true);
+    expect(screen.getByRole("combobox", { name: /colour/i })).toHaveValue("AUTO");
+  });
+
+  it("disables the colour selector for a read-only (view-only) staff member", () => {
+    renderCard(makeCard({ cardTintOverride: null }), false);
+    expect(screen.getByRole("combobox", { name: /colour/i })).toBeDisabled();
   });
 
   it("shows the existing shipment's status instead of the create form when one already exists", () => {

@@ -91,11 +91,17 @@ export function OrderCard({
       ref={draggable.setNodeRef}
       style={style}
       className={`relative flex flex-col gap-2 rounded-lg border border-border p-3 text-sm shadow-sm ${
-        card.hasEmbroideryLineMarker
+        card.cardTintOverride === "BLUE"
           ? "bg-accent-blue"
-          : card.hasCustomerUpload || card.needsPrinting || card.hasDecorationLineMarker
+          : card.cardTintOverride === "PINK"
             ? "bg-accent-pink"
-            : "bg-surface"
+            : card.cardTintOverride === "NONE"
+              ? "bg-surface"
+              : card.hasEmbroideryLineMarker
+                ? "bg-accent-blue"
+                : card.hasCustomerUpload || card.hasDecorationLineMarker
+                  ? "bg-accent-pink"
+                  : "bg-surface"
       } ${draggable.isDragging ? "opacity-50" : ""} ${isPending ? "opacity-70" : ""}`}
     >
       {card.hasCustomerNote ? (
@@ -128,9 +134,9 @@ export function OrderCard({
         <PriorityBadge priority={card.priority} />
       </div>
 
-      <NeedsPrintingToggle
+      <CardTintOverrideSelector
         orderId={card.id}
-        needsPrinting={card.needsPrinting}
+        cardTintOverride={card.cardTintOverride}
         disabled={!canManage || isPending}
       />
 
@@ -301,25 +307,33 @@ export function OrderCard({
   );
 }
 
-// A manual, Hub-only note — "this order still needs a print add-on applied."
-// Never synced to Shopify (see update-needs-printing.server.ts). Tints the
-// card the same light pink used for a customer file upload; the shop asked
-// to keep the two visually the same rather than distinguish them.
-function NeedsPrintingToggle({
+const TINT_OPTIONS: { value: "AUTO" | "PINK" | "BLUE" | "NONE"; label: string }[] = [
+  { value: "AUTO", label: "Auto colour" },
+  { value: "PINK", label: "Pink" },
+  { value: "BLUE", label: "Blue" },
+  { value: "NONE", label: "No tint" },
+];
+
+// A manual, Hub-only override for the card's tint (see
+// update-card-tint-override.server.ts) — never synced to Shopify. "Auto"
+// defers to hasEmbroideryLineMarker/hasCustomerUpload/hasDecorationLineMarker;
+// Pink/Blue/No tint force that colour regardless, for when an order changes
+// after the fact and those automatic signals go stale.
+function CardTintOverrideSelector({
   orderId,
-  needsPrinting,
+  cardTintOverride,
   disabled,
 }: {
   orderId: string;
-  needsPrinting: boolean;
+  cardTintOverride: "PINK" | "BLUE" | "NONE" | null;
   disabled: boolean;
 }) {
   const fetcher = useFetcher();
   // Optimistic: reflect the in-flight value immediately rather than waiting
   // for the board to revalidate.
-  const checked = fetcher.formData
-    ? fetcher.formData.get("needsPrinting") === "true"
-    : needsPrinting;
+  const value = fetcher.formData
+    ? (fetcher.formData.get("cardTintOverride") as string)
+    : (cardTintOverride ?? "AUTO");
 
   return (
     <label
@@ -329,23 +343,28 @@ function NeedsPrintingToggle({
         e.stopPropagation();
       }}
     >
-      <input
-        type="checkbox"
-        checked={checked}
+      Colour
+      <select
+        value={value}
         disabled={disabled || fetcher.state !== "idle"}
         onChange={(e) => {
           void fetcher.submit(
             {
-              _intent: "toggleNeedsPrinting",
+              _intent: "setCardTintOverride",
               orderId,
-              needsPrinting: e.target.checked ? "true" : "false",
+              cardTintOverride: e.target.value,
             },
             { method: "post" },
           );
         }}
-        className="h-3.5 w-3.5 shrink-0"
-      />
-      Needs printing
+        className="rounded border border-border bg-page px-1 py-0.5 text-xs text-ink"
+      >
+        {TINT_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

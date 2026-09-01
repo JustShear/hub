@@ -239,15 +239,15 @@ describe("orders board route (integration)", () => {
     expect(await db.activityEvent.count({ where: { orderId: order.id } })).toBe(1);
   });
 
-  it("performs a valid toggleNeedsPrinting action for a staff user with board.manage", async () => {
+  it("performs a valid setCardTintOverride action for a staff user with board.manage", async () => {
     const staffUser = await createStaffUserWithRole("MANAGER");
     const cookie = await sessionCookieFor(staffUser.id);
     const order = await createOrder();
 
     const formData = new FormData();
-    formData.set("_intent", "toggleNeedsPrinting");
+    formData.set("_intent", "setCardTintOverride");
     formData.set("orderId", order.id);
-    formData.set("needsPrinting", "true");
+    formData.set("cardTintOverride", "PINK");
 
     const result = await action({
       request: new Request("http://localhost/orders", {
@@ -259,20 +259,20 @@ describe("orders board route (integration)", () => {
       context: {},
     } as never);
 
-    expect(result).toMatchObject({ ok: true, needsPrinting: true });
+    expect(result).toMatchObject({ ok: true, cardTintOverride: "PINK" });
     const updated = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
-    expect(updated.needsPrinting).toBe(true);
+    expect(updated.cardTintOverride).toBe("PINK");
   });
 
-  it("rejects a toggleNeedsPrinting action from a staff user without board.manage", async () => {
+  it("rejects a setCardTintOverride action from a staff user without board.manage", async () => {
     const staffUser = await createStaffUserWithRole("PACKING_STAFF");
     const cookie = await sessionCookieFor(staffUser.id);
     const order = await createOrder();
 
     const formData = new FormData();
-    formData.set("_intent", "toggleNeedsPrinting");
+    formData.set("_intent", "setCardTintOverride");
     formData.set("orderId", order.id);
-    formData.set("needsPrinting", "true");
+    formData.set("cardTintOverride", "PINK");
 
     const result = await action({
       request: new Request("http://localhost/orders", {
@@ -286,7 +286,7 @@ describe("orders board route (integration)", () => {
 
     expect(result).toMatchObject({ ok: false });
     const unchanged = await db.shopifyOrder.findUniqueOrThrow({ where: { id: order.id } });
-    expect(unchanged.needsPrinting).toBe(false);
+    expect(unchanged.cardTintOverride).toBeNull();
   });
 
   it("filters the board by priority via search params", async () => {

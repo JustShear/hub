@@ -14,7 +14,7 @@ import {
   getBoardFilterOptions,
 } from "~/domain/orders/board-query.server";
 import { moveOrderWorkflowStatus } from "~/domain/orders/move-order-workflow-status.server";
-import { updateOrderNeedsPrinting } from "~/domain/orders/update-needs-printing.server";
+import { updateCardTintOverride } from "~/domain/orders/update-card-tint-override.server";
 import {
   listSavedViews,
   createSavedView,
@@ -124,34 +124,37 @@ export async function action({ request }: Route.ActionArgs) {
     return { intent: "move" as const, ok: true, workflowStatus: result.workflowStatus };
   }
 
-  if (intent === "toggleNeedsPrinting") {
+  if (intent === "setCardTintOverride") {
     if (!hasPermission(staffUser, "board.manage")) {
       return {
-        intent: "toggleNeedsPrinting" as const,
+        intent: "setCardTintOverride" as const,
         ok: false,
         error: "You don't have permission to update this order.",
       };
     }
     const orderId = formString(formData, "orderId");
-    const needsPrinting = formString(formData, "needsPrinting") === "true";
+    const raw = formString(formData, "cardTintOverride");
     if (!orderId) {
-      return { intent: "toggleNeedsPrinting" as const, ok: false, error: "Missing orderId." };
+      return { intent: "setCardTintOverride" as const, ok: false, error: "Missing orderId." };
+    }
+    if (raw !== "PINK" && raw !== "BLUE" && raw !== "NONE" && raw !== "AUTO") {
+      return { intent: "setCardTintOverride" as const, ok: false, error: "Unknown tint value." };
     }
 
-    const result = await updateOrderNeedsPrinting({
+    const result = await updateCardTintOverride({
       shopId: staffUser.shopId,
       orderId,
-      needsPrinting,
+      cardTintOverride: raw === "AUTO" ? null : raw,
       staffUserId: staffUser.id,
     });
 
     if (result.outcome === "rejected") {
-      return { intent: "toggleNeedsPrinting" as const, ok: false, error: result.reason };
+      return { intent: "setCardTintOverride" as const, ok: false, error: result.reason };
     }
     return {
-      intent: "toggleNeedsPrinting" as const,
+      intent: "setCardTintOverride" as const,
       ok: true,
-      needsPrinting: result.needsPrinting,
+      cardTintOverride: result.cardTintOverride,
     };
   }
 
