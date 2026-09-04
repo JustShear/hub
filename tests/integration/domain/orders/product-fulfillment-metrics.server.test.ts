@@ -115,6 +115,15 @@ describe("getProductFulfillmentMetrics (integration)", () => {
     expect(metrics.find((m) => m.productTitle === "Dad's Day")?.unfulfilledQuantity).toBe(2);
   });
 
+  it('matches "Harvest" in a longer product title', async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await createOrder(OrderStatus.NEW);
+    await createLine(order.id, "Harvest Hoodie", 6, 1); // 5 unfulfilled
+
+    const metrics = await getProductFulfillmentMetrics(shop.id);
+    expect(metrics.find((m) => m.productTitle === "Harvest")?.unfulfilledQuantity).toBe(5);
+  });
+
   it("never lets unfulfilled quantity go negative", async () => {
     const shop = await db.shop.findFirstOrThrow();
     const order = await createOrder(OrderStatus.NEW);

@@ -11,6 +11,7 @@ export const TRACKED_PRODUCT_TITLES = [
   "Bank of Dad",
   "Dad's Day",
   "Just Shear",
+  "Harvest",
 ];
 
 export interface ProductFulfillmentMetric {
