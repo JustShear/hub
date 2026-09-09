@@ -42,6 +42,21 @@ export interface OrderCardProps {
   onMove: (targetColumnKey: BoardColumnKey) => void;
 }
 
+// Priority, highest first: a manual cardTintOverride always wins (staff
+// correcting a specific order); otherwise embroidery (blue), then the green
+// placement/personalisation signal, then the general pink printing/upload
+// signals, else no tint. Pulled out of the JSX below since the nested
+// ternary it replaces was getting hard to read one level deeper.
+function tintClassName(card: BoardCard): string {
+  if (card.cardTintOverride === "BLUE") return "bg-accent-blue";
+  if (card.cardTintOverride === "PINK") return "bg-accent-pink";
+  if (card.cardTintOverride === "NONE") return "bg-surface";
+  if (card.hasEmbroideryLineMarker) return "bg-accent-blue";
+  if (card.hasGreenLineMarker) return "bg-accent-green";
+  if (card.hasCustomerUpload || card.hasDecorationLineMarker) return "bg-accent-pink";
+  return "bg-surface";
+}
+
 // To add a new field to the card: extend BoardCard in board-query.server.ts
 // (the select + toBoardCard transform), then render it here — see
 // docs/development.md "Kanban board" for the full walkthrough.
@@ -90,19 +105,7 @@ export function OrderCard({
     <div
       ref={draggable.setNodeRef}
       style={style}
-      className={`relative flex flex-col gap-2 rounded-lg border border-border p-3 text-sm shadow-sm ${
-        card.cardTintOverride === "BLUE"
-          ? "bg-accent-blue"
-          : card.cardTintOverride === "PINK"
-            ? "bg-accent-pink"
-            : card.cardTintOverride === "NONE"
-              ? "bg-surface"
-              : card.hasEmbroideryLineMarker
-                ? "bg-accent-blue"
-                : card.hasCustomerUpload || card.hasDecorationLineMarker
-                  ? "bg-accent-pink"
-                  : "bg-surface"
-      } ${draggable.isDragging ? "opacity-50" : ""} ${isPending ? "opacity-70" : ""}`}
+      className={`relative flex flex-col gap-2 rounded-lg border border-border p-3 text-sm shadow-sm ${tintClassName(card)} ${draggable.isDragging ? "opacity-50" : ""} ${isPending ? "opacity-70" : ""}`}
     >
       {card.hasCustomerNote ? (
         <span

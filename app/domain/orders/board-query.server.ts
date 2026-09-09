@@ -193,6 +193,8 @@ export interface BoardCard {
   hasDecorationLineMarker: boolean;
   /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
   hasEmbroideryLineMarker: boolean;
+  /** At least one line's Shopify property name/value, or its product/variant title, contains "lower back" or "tail name" — tinted light green. */
+  hasGreenLineMarker: boolean;
   /** The customer left a free-text note at Shopify checkout (ShopifyOrder.noteFromCustomer) — never staff-authored. */
   hasCustomerNote: boolean;
   /** True if this order has an active proof group not yet approved-or-beyond (or not-required), or its Shopify financialStatus isn't "PAID" — a Proof Approved/Exported for Print column placement can lag behind either fact. */
@@ -314,6 +316,7 @@ function toBoardCard(
   customerUploadOrderIds: Set<string>,
   decorationLineMarkerOrderIds: Set<string>,
   embroideryLineMarkerOrderIds: Set<string>,
+  greenLineMarkerOrderIds: Set<string>,
 ): BoardCard {
   const proofGroupSummary = summarizeCardProofGroups(
     row.proofGroups,
@@ -365,6 +368,7 @@ function toBoardCard(
     hasCustomerUpload: customerUploadOrderIds.has(row.id),
     hasDecorationLineMarker: decorationLineMarkerOrderIds.has(row.id),
     hasEmbroideryLineMarker: embroideryLineMarkerOrderIds.has(row.id),
+    hasGreenLineMarker: greenLineMarkerOrderIds.has(row.id),
     hasCustomerNote: Boolean(row.noteFromCustomer?.trim()),
     hasApprovalOrPaymentIssue: !allProofsResolved || row.financialStatus !== "PAID",
     columnKey: getBoardColumnKey(row),
@@ -579,13 +583,20 @@ async function loadOrderIdsWithLinePropertyMarker(
 }
 
 // Same pink signal as DECORATION_LINE_MARKERS, but matched against the
-// line's own product title rather than a Shopify line property — any
-// product name containing "printing" tints the card pink even when the
-// line carries no property at all. ("Add-Ons" lives in DECORATION_LINE_MARKERS
+// line's own product/variant title rather than a Shopify line property — any
+// title containing "printing" tints the card pink even when the line
+// carries no property at all. ("Add-Ons" lives in DECORATION_LINE_MARKERS
 // instead — it's line-property information, not a product name.)
 const PINK_PRODUCT_TITLE_MARKERS = ["printing"];
 
-async function loadOrderIdsWithProductTitleMarker(
+// Shop-requested light-green signal — a line whose placement/personalisation
+// info mentions "lower back" or "tail name". Checked against BOTH the line
+// property name/value AND the product/variant title (loadOrderIdsWithLineTitleMarker
+// below), same "don't assume which side carries it" reasoning as every other
+// marker here.
+const GREEN_LINE_MARKERS = ["lower back", "tail name"];
+
+async function loadOrderIdsWithLineTitleMarker(
   orderIds: string[],
   markers: string[],
 ): Promise<Set<string>> {
@@ -593,9 +604,10 @@ async function loadOrderIdsWithProductTitleMarker(
   const lines = await db.shopifyOrderLine.findMany({
     where: {
       orderId: { in: orderIds },
-      OR: markers.map((marker) => ({
-        productTitle: { contains: marker, mode: "insensitive" as const },
-      })),
+      OR: markers.flatMap((marker) => [
+        { productTitle: { contains: marker, mode: "insensitive" as const } },
+        { variantTitle: { contains: marker, mode: "insensitive" as const } },
+      ]),
     },
     select: { orderId: true },
   });
@@ -612,6 +624,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   customerUploadOrderIds: Set<string>;
   decorationLineMarkerOrderIds: Set<string>;
   embroideryLineMarkerOrderIds: Set<string>;
+  greenLineMarkerOrderIds: Set<string>;
 }> {
   const proofGroupIds = rows.flatMap((r) => r.proofGroups.map((g) => g.id));
   const staffIds = rows.flatMap((r) => r.proofGroups.map((g) => g.assignedStaffId));
@@ -627,6 +640,8 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     decorationLinePropertyMarkerOrderIds,
     embroideryLineMarkerOrderIds,
     pinkProductTitleMarkerOrderIds,
+    greenLinePropertyMarkerOrderIds,
+    greenLineTitleMarkerOrderIds,
   ] = await Promise.all([
     loadBlockedProofGroupIds(proofGroupIds),
     resolveStaffNames(staffIds),
@@ -637,7 +652,9 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     loadOrderIdsWithCustomerUpload(orderIds),
     loadOrderIdsWithLinePropertyMarker(orderIds, DECORATION_LINE_MARKERS),
     loadOrderIdsWithLinePropertyMarker(orderIds, EMBROIDERY_LINE_MARKERS),
-    loadOrderIdsWithProductTitleMarker(orderIds, PINK_PRODUCT_TITLE_MARKERS),
+    loadOrderIdsWithLineTitleMarker(orderIds, PINK_PRODUCT_TITLE_MARKERS),
+    loadOrderIdsWithLinePropertyMarker(orderIds, GREEN_LINE_MARKERS),
+    loadOrderIdsWithLineTitleMarker(orderIds, GREEN_LINE_MARKERS),
   ]);
   // Two independent sources drive the same pink signal — a Shopify line
   // property (DECORATION_LINE_MARKERS) or the line's own product title
@@ -647,6 +664,11 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
   const decorationLineMarkerOrderIds = new Set([
     ...decorationLinePropertyMarkerOrderIds,
     ...pinkProductTitleMarkerOrderIds,
+  ]);
+  // Same dual-source pattern for the green signal.
+  const greenLineMarkerOrderIds = new Set([
+    ...greenLinePropertyMarkerOrderIds,
+    ...greenLineTitleMarkerOrderIds,
   ]);
   return {
     blockedProofGroupIds,
@@ -658,6 +680,7 @@ async function loadProofGroupBoardContext(rows: BoardOrderRow[]): Promise<{
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
     embroideryLineMarkerOrderIds,
+    greenLineMarkerOrderIds,
   };
 }
 
@@ -853,6 +876,7 @@ export async function loadBoardColumns(params: {
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
     embroideryLineMarkerOrderIds,
+    greenLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -867,6 +891,7 @@ export async function loadBoardColumns(params: {
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
       embroideryLineMarkerOrderIds,
+      greenLineMarkerOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -923,6 +948,7 @@ export async function loadMoreForColumn(params: {
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
       embroideryLineMarkerOrderIds,
+      greenLineMarkerOrderIds,
     } = await loadProofGroupBoardContext(rows);
     let cards = rows.map((row) =>
       toBoardCard(
@@ -937,6 +963,7 @@ export async function loadMoreForColumn(params: {
         customerUploadOrderIds,
         decorationLineMarkerOrderIds,
         embroideryLineMarkerOrderIds,
+        greenLineMarkerOrderIds,
       ),
     );
     cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -965,6 +992,7 @@ export async function loadMoreForColumn(params: {
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
     embroideryLineMarkerOrderIds,
+    greenLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   let cards = rows.map((row) =>
     toBoardCard(
@@ -979,6 +1007,7 @@ export async function loadMoreForColumn(params: {
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
       embroideryLineMarkerOrderIds,
+      greenLineMarkerOrderIds,
     ),
   );
   cards = applyDueDateStateFilter(cards, params.filters.dueDateStates);
@@ -1019,6 +1048,7 @@ export async function loadSpecialView(params: {
     customerUploadOrderIds,
     decorationLineMarkerOrderIds,
     embroideryLineMarkerOrderIds,
+    greenLineMarkerOrderIds,
   } = await loadProofGroupBoardContext(rows);
   const cards = rows.map((row) =>
     toBoardCard(
@@ -1033,6 +1063,7 @@ export async function loadSpecialView(params: {
       customerUploadOrderIds,
       decorationLineMarkerOrderIds,
       embroideryLineMarkerOrderIds,
+      greenLineMarkerOrderIds,
     ),
   );
   const last = rows.at(-1);

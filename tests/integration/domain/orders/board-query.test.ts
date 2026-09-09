@@ -633,6 +633,83 @@ describe("loadBoardColumns (integration)", () => {
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
 
+  it('reports hasGreenLineMarker for a line property valued "Tail Name"', async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(order.id);
+    const line = await db.shopifyOrderLine.create({
+      data: {
+        orderId: order.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Personalised Blanket",
+        quantity: 1,
+      },
+    });
+    const property = await db.shopifyLineProperty.create({
+      data: { orderLineId: line.id, name: "Tail Name", value: "Rex" },
+    });
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
+    expect(card?.hasGreenLineMarker).toBe(true);
+    expect(card?.hasDecorationLineMarker).toBe(false);
+
+    await db.shopifyLineProperty.delete({ where: { id: property.id } });
+  });
+
+  it('reports hasGreenLineMarker for a variant title containing "Lower Back", with no line property at all', async () => {
+    const shop = await db.shop.findFirstOrThrow();
+
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+        orderNumber: `#board-test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+        workflowStatus: OrderStatus.NEW,
+      },
+    });
+    createdOrderIds.push(order.id);
+    await db.shopifyOrderLine.create({
+      data: {
+        orderId: order.id,
+        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+        productTitle: "Embroidered Tee",
+        variantTitle: "Lower Back Placement",
+        quantity: 1,
+      },
+    });
+
+    const result = await loadBoardColumns({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+
+    const card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
+    expect(card?.hasGreenLineMarker).toBe(true);
+  });
+
   it("reports hasCustomerNote only for an order with a non-blank Shopify checkout note", async () => {
     const shop = await db.shop.findFirstOrThrow();
 

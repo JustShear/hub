@@ -36,6 +36,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasCustomerUpload: false,
     hasDecorationLineMarker: false,
     hasEmbroideryLineMarker: false,
+    hasGreenLineMarker: false,
     hasCustomerNote: false,
     hasApprovalOrPaymentIssue: false,
     columnKey: "new",
@@ -393,6 +394,38 @@ describe("OrderCard", () => {
     const card = screen.getByRole("link", { name: "#1007" }).closest("div.rounded-lg");
     expect(card).toHaveClass("bg-accent-blue");
     expect(card).not.toHaveClass("bg-accent-pink");
+  });
+
+  it("tints the card light green when a line carries a lower-back or tail-name marker", () => {
+    renderCard(makeCard({ orderNumber: "#1015", hasGreenLineMarker: true }), true);
+    expect(screen.getByRole("link", { name: "#1015" }).closest("div.rounded-lg")).toHaveClass(
+      "bg-accent-green",
+    );
+  });
+
+  it("shows green rather than pink when an order has both the green marker and a pink-triggering signal", () => {
+    renderCard(
+      makeCard({
+        orderNumber: "#1016",
+        hasGreenLineMarker: true,
+        hasCustomerUpload: true,
+        hasDecorationLineMarker: true,
+      }),
+      true,
+    );
+    const card = screen.getByRole("link", { name: "#1016" }).closest("div.rounded-lg");
+    expect(card).toHaveClass("bg-accent-green");
+    expect(card).not.toHaveClass("bg-accent-pink");
+  });
+
+  it("shows blue rather than green when an order has both an embroidery marker and the green marker", () => {
+    renderCard(
+      makeCard({ orderNumber: "#1017", hasEmbroideryLineMarker: true, hasGreenLineMarker: true }),
+      true,
+    );
+    const card = screen.getByRole("link", { name: "#1017" }).closest("div.rounded-lg");
+    expect(card).toHaveClass("bg-accent-blue");
+    expect(card).not.toHaveClass("bg-accent-green");
   });
 
   it("shows the colour selector reflecting the card's current override", () => {
