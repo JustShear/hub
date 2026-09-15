@@ -590,11 +590,12 @@ async function loadOrderIdsWithLinePropertyMarker(
 const PINK_PRODUCT_TITLE_MARKERS = ["printing"];
 
 // Shop-requested light-green signal — a line whose placement/personalisation
-// info mentions "lower back" or "tail name". Checked against BOTH the line
-// property name/value AND the product/variant title (loadOrderIdsWithLineTitleMarker
-// below), same "don't assume which side carries it" reasoning as every other
-// marker here.
-const GREEN_LINE_MARKERS = ["lower back", "tail name"];
+// info mentions "lower back", "Custom Name", or "tail" (this last one alone
+// covers "tail name" too, so a separate entry for it would be redundant).
+// Checked against BOTH the line property name/value AND the product/variant
+// title (loadOrderIdsWithLineTitleMarker below), same "don't assume which
+// side carries it" reasoning as every other marker here.
+const GREEN_LINE_MARKERS = ["lower back", "Custom Name", "tail"];
 
 async function loadOrderIdsWithLineTitleMarker(
   orderIds: string[],
