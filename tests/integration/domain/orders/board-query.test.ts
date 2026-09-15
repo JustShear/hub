@@ -633,7 +633,7 @@ describe("loadBoardColumns (integration)", () => {
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
 
-  it('reports hasGreenLineMarker for a line property valued "Tail Name"', async () => {
+  it('does NOT report hasGreenLineMarker for a bare "tail" property alone — the shop found it tinting unrelated orders green (e.g. "Retail"/"Details"/"Tailored")', async () => {
     const shop = await db.shop.findFirstOrThrow();
 
     const order = await db.shopifyOrder.create({
@@ -668,8 +668,7 @@ describe("loadBoardColumns (integration)", () => {
     });
 
     const card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
-    expect(card?.hasGreenLineMarker).toBe(true);
-    expect(card?.hasDecorationLineMarker).toBe(false);
+    expect(card?.hasGreenLineMarker).toBe(false);
 
     await db.shopifyLineProperty.delete({ where: { id: property.id } });
   });
@@ -735,46 +734,6 @@ describe("loadBoardColumns (integration)", () => {
     });
     const property = await db.shopifyLineProperty.create({
       data: { orderLineId: line.id, name: "Custom Name", value: "Bella" },
-    });
-
-    const result = await loadBoardColumns({
-      shopId: shop.id,
-      filters: EMPTY_BOARD_FILTERS,
-      sort: { field: "urgency_default" },
-      currentStaffUserId: "irrelevant",
-    });
-
-    const card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
-    expect(card?.hasGreenLineMarker).toBe(true);
-
-    await db.shopifyLineProperty.delete({ where: { id: property.id } });
-  });
-
-  it('reports hasGreenLineMarker for just "tail" alone, not only the full phrase "tail name"', async () => {
-    const shop = await db.shop.findFirstOrThrow();
-
-    const order = await db.shopifyOrder.create({
-      data: {
-        shopId: shop.id,
-        shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
-        orderNumber: `#board-test-${randomUUID()}`,
-        shopifyCreatedAt: new Date(),
-        tags: [],
-        rawPayload: {},
-        workflowStatus: OrderStatus.NEW,
-      },
-    });
-    createdOrderIds.push(order.id);
-    const line = await db.shopifyOrderLine.create({
-      data: {
-        orderId: order.id,
-        shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
-        productTitle: "Personalised Blanket",
-        quantity: 1,
-      },
-    });
-    const property = await db.shopifyLineProperty.create({
-      data: { orderLineId: line.id, name: "Tail Length", value: "Long" },
     });
 
     const result = await loadBoardColumns({

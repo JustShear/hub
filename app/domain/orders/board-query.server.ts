@@ -193,7 +193,7 @@ export interface BoardCard {
   hasDecorationLineMarker: boolean;
   /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
   hasEmbroideryLineMarker: boolean;
-  /** At least one line's Shopify property name/value, or its product/variant title, contains "lower back" or "tail name" — tinted light green. */
+  /** At least one line's Shopify property name/value, or its product/variant title, contains "lower back" or "Custom Name" — tinted light green. */
   hasGreenLineMarker: boolean;
   /** The customer left a free-text note at Shopify checkout (ShopifyOrder.noteFromCustomer) — never staff-authored. */
   hasCustomerNote: boolean;
@@ -590,12 +590,13 @@ async function loadOrderIdsWithLinePropertyMarker(
 const PINK_PRODUCT_TITLE_MARKERS = ["printing"];
 
 // Shop-requested light-green signal — a line whose placement/personalisation
-// info mentions "lower back", "Custom Name", or "tail" (this last one alone
-// covers "tail name" too, so a separate entry for it would be redundant).
-// Checked against BOTH the line property name/value AND the product/variant
-// title (loadOrderIdsWithLineTitleMarker below), same "don't assume which
-// side carries it" reasoning as every other marker here.
-const GREEN_LINE_MARKERS = ["lower back", "Custom Name", "tail"];
+// info mentions "lower back" or "Custom Name". "tail" was removed — as a
+// bare substring it was matching unrelated words (e.g. "Retail", "Details",
+// "Tailored") and tinting the wrong orders green. Checked against BOTH the
+// line property name/value AND the product/variant title
+// (loadOrderIdsWithLineTitleMarker below), same "don't assume which side
+// carries it" reasoning as every other marker here.
+const GREEN_LINE_MARKERS = ["lower back", "Custom Name"];
 
 async function loadOrderIdsWithLineTitleMarker(
   orderIds: string[],
