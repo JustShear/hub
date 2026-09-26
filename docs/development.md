@@ -4,12 +4,13 @@ This document covers things a developer needs to know that aren't obvious from t
 
 ## Shopify scopes
 
-The app requests four scopes total:
+The app requests five scopes total:
 
 - `read_orders`
 - `read_products`
 - `read_customers`
 - `write_fulfillments` — added in Milestone 12 for `fulfillmentCreate` (writing tracking numbers back to Shopify after a Starshipit freight label is created); this doc originally said "no write scopes exist yet," which was true before that milestone and stale afterward
+- `write_orders` — required for `tagsAdd`/`tagsRemove` (Milestone 06B's `syncOrderLifecycleTag`, see [ADR-0013](decisions/0013-kanban-lifecycle-tags-and-pack-column.md)). This was missed when that feature shipped — the scope was never actually added to the live app's configuration in Shopify Admin, so every tag-driven column drop (Exported for Print, Waiting on Customer, etc.) has been silently failing with `ACCESS_DENIED` in production since. Confirmed 2026-09-26 via a real `IntegrationFailure.technicalDetail` payload: `{"message":"Access denied for tagsAdd field.","extensions":{"code":"ACCESS_DENIED"}}`. Fixing this requires adding the scope in Shopify Admin and re-authorizing (see the token-refresh steps below) — a live-store configuration change, not a code change.
 
 Configured once, manually, when the custom app is created in Shopify Admin → Settings → Apps → Develop apps. `Shop.scopes` in the database is a record of what was granted, not something the app negotiates at runtime. `prisma/seed.ts` writes `SHOPIFY_SHOP_DOMAIN`/`SHOPIFY_ADMIN_API_TOKEN` (from `.env`) into the `Shop` row on every seed run — re-run `npm run db:seed` after changing either value in `.env` to point the app at a different store.
 
