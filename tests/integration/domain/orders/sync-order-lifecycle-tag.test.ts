@@ -80,6 +80,53 @@ describe("syncOrderLifecycleTag (integration)", () => {
     expect(failure).not.toBeNull();
   }, 20000);
 
+  // Distinct from the "nonexistent order id" test above: a syntactically
+  // valid-but-nonexistent gid://shopify/Order/<uuid> gets a graceful
+  // per-mutation userError ("Order does not exist") from Shopify — but a
+  // genuinely malformed id fails GraphQL's own ID scalar coercion, which
+  // Shopify returns as a top-level `errors` entry instead, hitting the
+  // catch block (ShopifyGraphQLError) rather than the "partial" path. This
+  // is the actual path a real-world "GraphQL request returned errors"
+  // failure (as opposed to "Order does not exist") comes from.
+  it("records the real Shopify GraphQL error detail (not just the generic wrapper message) for a malformed order id", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const order = await db.shopifyOrder.create({
+      data: {
+        shopId: shop.id,
+        shopifyOrderGid: "not-a-valid-shopify-gid",
+        orderNumber: `#test-${randomUUID()}`,
+        shopifyCreatedAt: new Date(),
+        tags: [],
+        rawPayload: {},
+      },
+    });
+    createdOrderIds.push(order.id);
+
+    const result = await syncOrderLifecycleTag({
+      shopId: order.shopId,
+      orderId: order.id,
+      addTag: "proof_sent",
+      removeTags: [],
+    });
+
+    expect(result.outcome).toBe("rejected");
+
+    const failure = await db.integrationFailure.findFirst({
+      where: {
+        shopId: order.shopId,
+        integration: "SHOPIFY_TAG_UPDATE",
+        action: "order_tag_sync",
+        relatedOrderId: order.id,
+      },
+    });
+    expect(failure).not.toBeNull();
+    // The whole point of this test: technicalDetail must carry more than
+    // the generic "Shopify GraphQL request returned errors" wrapper — the
+    // real per-error detail Shopify sent back needs to be in there too.
+    expect(failure?.technicalDetail).not.toBeNull();
+    expect(failure?.technicalDetail).not.toBe("Shopify GraphQL request returned errors");
+  }, 20000);
+
   it("sends only the add mutation when removeTags is empty (no crash on the omitted alias)", async () => {
     const order = await createOrder([]);
 

@@ -135,13 +135,22 @@ export async function syncOrderLifecycleTag(
     return { outcome: "partial", reason: summary };
   } catch (error) {
     const isShopifyError = error instanceof ShopifyGraphQLError;
+    // ShopifyGraphQLError.message is just a generic wrapper ("Shopify
+    // GraphQL request returned errors") — the actual Shopify-returned error
+    // detail (field/message/code) lives on its `errors` property, which was
+    // previously being dropped entirely, leaving nothing to diagnose from.
+    const technicalDetail = isShopifyError
+      ? error.errors
+        ? `${error.message}: ${JSON.stringify(error.errors)}`
+        : error.message
+      : String(error);
     await recordIntegrationFailure({
       shopId: input.shopId,
       integration: "SHOPIFY_TAG_UPDATE",
       action: "order_tag_sync",
       relatedOrderId: order.id,
       summary: "Failed to sync a lifecycle tag to Shopify.",
-      technicalDetail: isShopifyError ? error.message : String(error),
+      technicalDetail,
       severity: "LOW",
       retryable: true,
     });
