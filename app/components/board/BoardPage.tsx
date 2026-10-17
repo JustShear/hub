@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { useFetcher, useSearchParams } from "react-router";
 import type { OrderStatus } from "@prisma/client";
@@ -169,6 +169,18 @@ export function BoardPage(props: BoardPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moveFetcher.state, moveFetcher.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  // moveCard closes over fresh state every render; cards are memoised, so they
+  // get a handler whose identity never changes and that always calls the
+  // latest moveCard.
+  const moveCardRef = useRef(moveCard);
+  useEffect(() => {
+    moveCardRef.current = moveCard;
+  });
+  const stableMoveCard = useCallback((card: BoardCard, toKey: BoardColumnKey) => {
+    moveCardRef.current(card, toKey);
+  }, []);
+  const linkSearch = searchParams.size > 0 ? `?${searchParams.toString()}` : "";
 
   function handleDragEnd(event: DragEndEvent) {
     const cardData = event.active.data.current as { card: BoardCard } | undefined;
@@ -348,7 +360,8 @@ export function BoardPage(props: BoardPageProps) {
                   canViewIntegrations={canViewIntegrations}
                   canCreateFreightShipments={canCreateFreightShipments}
                   pendingCardIds={pendingCardIds}
-                  onMove={moveCard}
+                  linkSearch={linkSearch}
+                  onMove={stableMoveCard}
                   onLoadMore={loadMoreForColumn}
                   loadMorePending={loadingMoreColumn === column.key}
                 />

@@ -211,7 +211,12 @@ export async function loadOrderDetail(params: {
   includeIntegrationTechnicalDetail: boolean;
 }): Promise<OrderDetail | null> {
   const now = new Date();
-  const order = await db.shopifyOrder.findFirst({
+  // Everything below keys off params.orderId directly, so the order row and
+  // its eight side-loads are started together instead of the side-loads
+  // waiting on the (deepest) order+lines+properties query first. For an
+  // order that doesn't exist / isn't in this shop the side-loads' results
+  // are simply discarded — a few cheap indexed reads wasted on a 404.
+  const orderPromise = db.shopifyOrder.findFirst({
     where: { id: params.orderId, shopId: params.shopId },
     include: {
       lines: {
@@ -232,6 +237,26 @@ export async function loadOrderDetail(params: {
     },
   });
 
+  const sideLoadsPromise = Promise.all([
+    db.orderNote.findMany({
+      where: { orderId: params.orderId },
+      orderBy: { createdAt: "desc" },
+      take: NOTES_PAGE_SIZE,
+    }),
+    db.orderNote.count({ where: { orderId: params.orderId } }),
+    db.activityEvent.findMany({
+      where: { orderId: params.orderId },
+      orderBy: { createdAt: "desc" },
+      take: ACTIVITY_PAGE_SIZE + 1,
+    }),
+    loadProofGroupsForOrder({ shopId: params.shopId, orderId: params.orderId }),
+    loadProofRequestsForOrder({ shopId: params.shopId, orderId: params.orderId }),
+    loadFreightShipmentsForOrder({ shopId: params.shopId, orderId: params.orderId }),
+    loadWarehousePickJobForOrder({ shopId: params.shopId, orderId: params.orderId }),
+    loadExceptionCasesForOrder({ shopId: params.shopId, orderId: params.orderId }),
+  ]);
+
+  const [order, sideLoads] = await Promise.all([orderPromise, sideLoadsPromise]);
   if (!order) return null;
 
   const [
@@ -243,24 +268,7 @@ export async function loadOrderDetail(params: {
     freightShipments,
     warehousePickJob,
     exceptionCases,
-  ] = await Promise.all([
-    db.orderNote.findMany({
-      where: { orderId: order.id },
-      orderBy: { createdAt: "desc" },
-      take: NOTES_PAGE_SIZE,
-    }),
-    db.orderNote.count({ where: { orderId: order.id } }),
-    db.activityEvent.findMany({
-      where: { orderId: order.id },
-      orderBy: { createdAt: "desc" },
-      take: ACTIVITY_PAGE_SIZE + 1,
-    }),
-    loadProofGroupsForOrder({ shopId: params.shopId, orderId: order.id }),
-    loadProofRequestsForOrder({ shopId: params.shopId, orderId: order.id }),
-    loadFreightShipmentsForOrder({ shopId: params.shopId, orderId: order.id }),
-    loadWarehousePickJobForOrder({ shopId: params.shopId, orderId: order.id }),
-    loadExceptionCasesForOrder({ shopId: params.shopId, orderId: order.id }),
-  ]);
+  ] = sideLoads;
 
   const activityHasMore = activity.length > ACTIVITY_PAGE_SIZE;
   const activityPage = activity.slice(0, ACTIVITY_PAGE_SIZE);

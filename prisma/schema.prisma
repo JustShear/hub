@@ -303,6 +303,9 @@ model ShopifyLineProperty {
   detectedType  PropertyDetectedType @default(TEXT)
   parsedAssetId String? // set once linked to a CustomerArtworkAsset
   createdAt     DateTime             @default(now())
+
+  // Hot-path lookup (board/drawer/layout loaders) — FKs aren't auto-indexed in Postgres.
+  @@index([orderLineId])
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +395,8 @@ model ArtworkOrderLineLink {
   createdAt            DateTime             @default(now())
 
   @@unique([assetId, orderLineId])
+  // Hot-path lookup (board/drawer/layout loaders) — FKs aren't auto-indexed in Postgres.
+  @@index([orderLineId])
 }
 
 // Assessable at order, order-line OR proof-group scope — exactly one FK set.
@@ -1120,6 +1125,9 @@ model OrderNote {
   body          String
   visibility    NoteVisibility
   createdAt     DateTime       @default(now())
+
+  // Hot-path lookup (board/drawer/layout loaders) — FKs aren't auto-indexed in Postgres.
+  @@index([orderId, createdAt])
 }
 
 // One row per proof request, not per version — a request bundling several
@@ -1195,6 +1203,9 @@ model Notification {
   relatedEntityId   String?
   readAt            DateTime?
   createdAt         DateTime  @default(now())
+
+  // Hot-path lookup (board/drawer/layout loaders) — FKs aren't auto-indexed in Postgres.
+  @@index([staffUserId, createdAt])
 }
 
 model SavedView {
@@ -1308,6 +1319,10 @@ model IntegrationFailure {
   resolvedAt        DateTime?
 
   attempts IntegrationAttempt[]
+
+  // Hot-path lookup (board/drawer/layout loaders) — FKs aren't auto-indexed in Postgres.
+  @@index([relatedOrderId])
+  @@index([relatedProofGroupId])
 }
 
 model IntegrationAttempt {

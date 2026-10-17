@@ -2,6 +2,7 @@
    (isDragging) alongside a ref-setter (setNodeRef) and listener/attribute
    objects in one hook result; this isn't the ref-read-during-render
    anti-pattern the rule targets. */
+import { memo } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -18,7 +19,7 @@ import {
   Truck,
   TriangleAlert,
 } from "lucide-react";
-import { Link, useFetcher, useLocation } from "react-router";
+import { Link, useFetcher } from "react-router";
 import type { BoardCard } from "~/domain/orders/board-query.server";
 import type { BoardColumnKey } from "~/domain/orders/board-columns";
 import { PROOF_SUMMARY_LABELS } from "~/domain/orders/labels";
@@ -39,7 +40,16 @@ export interface OrderCardProps {
   canViewIntegrations: boolean;
   canCreateFreightShipments: boolean;
   isPending: boolean;
-  onMove: (targetColumnKey: BoardColumnKey) => void;
+  /**
+   * The board's current query string (filters/sort/view), including the
+   * leading "?" — appended to the card's drawer link so closing the drawer
+   * (browser back) returns to exactly the same board state. Passed in rather
+   * than read via useLocation() here: a per-card router subscription meant
+   * every card re-rendered on every drawer open/close.
+   */
+  linkSearch: string;
+  /** Receives the card itself so one stable handler can serve every card (keeps React.memo effective). */
+  onMove: (card: BoardCard, targetColumnKey: BoardColumnKey) => void;
 }
 
 // Priority, highest first: a manual cardTintOverride always wins (staff
@@ -60,19 +70,17 @@ function tintClassName(card: BoardCard): string {
 // To add a new field to the card: extend BoardCard in board-query.server.ts
 // (the select + toBoardCard transform), then render it here — see
 // docs/development.md "Kanban board" for the full walkthrough.
-export function OrderCard({
+function OrderCardImpl({
   card,
   canManage,
   canViewIntegrations,
   canCreateFreightShipments,
   isPending,
+  linkSearch,
   onMove,
 }: OrderCardProps) {
-  // Preserves the board's current filters/sort/view in the URL so closing
-  // the drawer (browser back) returns to exactly the same board state —
-  // the drawer is a real nested route (app/routes/orders.$orderId.tsx), not
-  // client-only state.
-  const location = useLocation();
+  // The drawer is a real nested route (app/routes/orders.$orderId.tsx), not
+  // client-only state — linkSearch keeps the board's filters in its URL.
   const draggable = useDraggable({
     id: card.id,
     data: { fromColumnKey: card.columnKey, card },
@@ -129,7 +137,7 @@ export function OrderCard({
       ) : null}
       <div className="flex items-start justify-between gap-2">
         <Link
-          to={{ pathname: `/orders/${card.id}`, search: location.search }}
+          to={{ pathname: `/orders/${card.id}`, search: linkSearch }}
           className="rounded text-left font-semibold text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
         >
           {card.orderNumber}
@@ -301,7 +309,9 @@ export function OrderCard({
           <MoveToMenu
             currentWorkflowStatus={card.workflowStatus}
             currentColumnKey={card.columnKey}
-            onMove={onMove}
+            onMove={(targetColumnKey) => {
+              onMove(card, targetColumnKey);
+            }}
             disabled={isPending}
           />
         </div>
@@ -309,6 +319,10 @@ export function OrderCard({
     </div>
   );
 }
+
+// memo: with linkSearch/onMove/handlers stable, a card whose own data didn't
+// change skips re-rendering when the drawer opens/closes or an unrelated card moves.
+export const OrderCard = memo(OrderCardImpl);
 
 const TINT_OPTIONS: { value: "AUTO" | "PINK" | "BLUE" | "NONE"; label: string }[] = [
   { value: "AUTO", label: "Auto colour" },

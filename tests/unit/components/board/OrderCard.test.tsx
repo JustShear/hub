@@ -66,7 +66,12 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
   };
 }
 
-function renderCard(card: BoardCard, canManage: boolean, canCreateFreightShipments = false) {
+function renderCard(
+  card: BoardCard,
+  canManage: boolean,
+  canCreateFreightShipments = false,
+  linkSearch = "",
+) {
   const Stub = createRoutesStub([
     {
       path: "/orders",
@@ -78,6 +83,7 @@ function renderCard(card: BoardCard, canManage: boolean, canCreateFreightShipmen
             canViewIntegrations={true}
             canCreateFreightShipments={canCreateFreightShipments}
             isPending={false}
+            linkSearch={linkSearch}
             onMove={vi.fn()}
           />
         </DndContext>
@@ -99,6 +105,14 @@ describe("OrderCard", () => {
   it("links the order number to the order's deep-linked drawer route", () => {
     renderCard(makeCard(), true);
     expect(screen.getByRole("link", { name: "#1001" })).toHaveAttribute("href", "/orders/order_1");
+  });
+
+  it("carries the board's current filters/sort in the drawer link so closing the drawer restores them", () => {
+    renderCard(makeCard(), true, false, "?priority=URGENT&sort=due_date");
+    expect(screen.getByRole("link", { name: "#1001" })).toHaveAttribute(
+      "href",
+      "/orders/order_1?priority=URGENT&sort=due_date",
+    );
   });
 
   it("shows a '+N' overflow chip beyond the visible tag limit", () => {

@@ -19,12 +19,14 @@ export function shouldPollTick(
  *
  * Paused while the tab is hidden (`document.visibilityState`) so a
  * backgrounded tab doesn't keep polling, and skipped entirely while a
- * revalidation or navigation is already in flight.
+ * revalidation or navigation is already in flight. `enabled: false` stops
+ * the interval entirely (e.g. while a detail drawer is open on top).
  */
-export function usePollingRevalidation(intervalMs = 20_000): void {
+export function usePollingRevalidation(intervalMs = 20_000, enabled = true): void {
   const revalidator = useRevalidator();
 
   useEffect(() => {
+    if (!enabled) return;
     const tick = () => {
       if (!shouldPollTick(revalidator.state, document.visibilityState)) return;
       void revalidator.revalidate();
@@ -39,5 +41,5 @@ export function usePollingRevalidation(intervalMs = 20_000): void {
     // including it would restart (and desync) the interval every time
     // `revalidator.state` changes, which happens on every tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intervalMs]);
+  }, [intervalMs, enabled]);
 }

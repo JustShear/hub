@@ -27,23 +27,25 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const canEditAssignment = hasPermission(staffUser, "orders.assignment.update");
   const canAssignProofArtwork = hasPermission(staffUser, "proof_artwork.assign");
 
-  const order = await loadOrderDetail({
-    shopId: staffUser.shopId,
-    orderId: params.orderId,
-    includeIntegrationTechnicalDetail: canViewIntegrations,
-  });
-
-  if (!order) {
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- React Router's documented convention for triggering an ErrorBoundary
-    throw new Response("Order not found", { status: 404 });
-  }
-
-  const [assignableStaff, shop] = await Promise.all([
+  // The three lookups are independent of each other — run them together
+  // rather than paying for the (comparatively cheap) shop/staff queries as
+  // an extra round trip after the heavy order load.
+  const [order, assignableStaff, shop] = await Promise.all([
+    loadOrderDetail({
+      shopId: staffUser.shopId,
+      orderId: params.orderId,
+      includeIntegrationTechnicalDetail: canViewIntegrations,
+    }),
     canEditAssignment || canAssignProofArtwork
       ? getAssignableStaff(staffUser.shopId)
       : Promise.resolve([]),
     db.shop.findUnique({ where: { id: staffUser.shopId }, select: { shopifyDomain: true } }),
   ]);
+
+  if (!order) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- React Router's documented convention for triggering an ErrorBoundary
+    throw new Response("Order not found", { status: 404 });
+  }
 
   const canCreateProofVersions =
     hasPermission(staffUser, "proof_versions.create") &&

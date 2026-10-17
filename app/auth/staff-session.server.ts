@@ -91,7 +91,25 @@ async function loadStaffUserWithPermissions(
   };
 }
 
-export async function requireStaffUser(request: Request): Promise<StaffUserWithPermissions> {
+// React Router runs every matched loader (app layout, orders board, order
+// drawer, ...) against the SAME Request object, and each one calls
+// requireStaffUser — previously that meant the roles->permissions lookup
+// (5 sequential Prisma queries) ran 2-3x per page navigation/revalidation.
+// Memoised per Request object (WeakMap, so nothing outlives the request) —
+// the cached value is the in-flight promise itself, so concurrent loaders
+// share one lookup rather than racing to start their own.
+const staffUserByRequest = new WeakMap<Request, Promise<StaffUserWithPermissions>>();
+
+export function requireStaffUser(request: Request): Promise<StaffUserWithPermissions> {
+  const cached = staffUserByRequest.get(request);
+  if (cached) return cached;
+
+  const lookup = resolveStaffUser(request);
+  staffUserByRequest.set(request, lookup);
+  return lookup;
+}
+
+async function resolveStaffUser(request: Request): Promise<StaffUserWithPermissions> {
   const staffUserId = await getStaffUserId(request);
 
   if (!staffUserId) {

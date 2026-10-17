@@ -1,4 +1,4 @@
-import { Outlet } from "react-router";
+import { Outlet, useParams } from "react-router";
 import type { BoardColumnKey } from "~/domain/orders/board-columns";
 import type { Route } from "./+types/orders";
 import { requireStaffUser } from "~/auth/staff-session.server";
@@ -229,7 +229,13 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function OrdersBoard({ loaderData }: Route.ComponentProps) {
-  usePollingRevalidation();
+  // Polling re-runs every active loader — with the drawer open that means the
+  // whole board (~20 queries, up to 400 cards) AND the drawer's own ~35
+  // queries every 20s, for a screen the user is actively reading/editing.
+  // Paused while an order is open; resumes the moment the drawer closes, and
+  // any edit made in the drawer still revalidates everything via its action.
+  const { orderId } = useParams();
+  usePollingRevalidation(undefined, orderId === undefined);
   return (
     <>
       <BoardPage {...loaderData} />

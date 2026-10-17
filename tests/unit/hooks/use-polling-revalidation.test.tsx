@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, render } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import { shouldPollTick, usePollingRevalidation } from "~/hooks/use-polling-revalidation";
 
@@ -30,5 +30,57 @@ describe("usePollingRevalidation", () => {
     expect(() => {
       unmount();
     }).not.toThrow();
+  });
+});
+
+describe("usePollingRevalidation enabled flag", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function renderWithLoaderCounter(enabled: boolean) {
+    let loaderCalls = 0;
+    function Poller() {
+      usePollingRevalidation(1000, enabled);
+      return null;
+    }
+    const Stub = createRoutesStub([
+      {
+        path: "/test",
+        Component: Poller,
+        loader() {
+          loaderCalls += 1;
+          return null;
+        },
+      },
+    ]);
+    render(<Stub initialEntries={["/test"]} />);
+    return () => loaderCalls;
+  }
+
+  it("re-runs the route's loaders on each interval while enabled", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getCalls = renderWithLoaderCounter(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    const afterMount = getCalls();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3100);
+    });
+    expect(getCalls()).toBeGreaterThan(afterMount);
+  });
+
+  it("never polls while disabled (e.g. an order drawer is open)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getCalls = renderWithLoaderCounter(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    const afterMount = getCalls();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(getCalls()).toBe(afterMount);
   });
 });
