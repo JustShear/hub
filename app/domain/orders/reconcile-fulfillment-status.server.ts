@@ -76,16 +76,22 @@ export async function reconcileFulfillmentStatus(
       failed += 1;
       const message = error instanceof Error ? error.message : "Unknown error";
       const { severity, retryable, summary } = classifyFailure(error);
-      await recordIntegrationFailure({
-        shopId: shop.id,
-        integration: IntegrationType.SHOPIFY_ORDER_IMPORT,
-        action: failureAction,
-        relatedOrderId: order.id,
-        summary,
-        technicalDetail: sanitizeTechnicalDetail(message),
-        severity,
-        retryable,
-      });
+      // Bookkeeping must never abort the sweep — one unrecordable failure
+      // would otherwise stop every remaining order from being checked.
+      try {
+        await recordIntegrationFailure({
+          shopId: shop.id,
+          integration: IntegrationType.SHOPIFY_ORDER_IMPORT,
+          action: failureAction,
+          relatedOrderId: order.id,
+          summary,
+          technicalDetail: sanitizeTechnicalDetail(message),
+          severity,
+          retryable,
+        });
+      } catch (recordError) {
+        console.error("Could not record fulfillment reconciliation failure", recordError);
+      }
     }
     await sleep(delayBetweenOrdersMs);
   }

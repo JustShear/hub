@@ -1,6 +1,7 @@
 import { reconcileFulfillmentStatus } from "~/domain/orders/reconcile-fulfillment-status.server";
 
 const POLL_INTERVAL_MS = 30 * 60_000; // 30 minutes
+const INITIAL_SWEEP_DELAY_MS = 2 * 60_000; // 2 minutes after start-up
 
 declare global {
   var __fulfillmentPollerStarted: boolean | undefined;
@@ -20,7 +21,7 @@ export function startFulfillmentPoller(): void {
   }
   global.__fulfillmentPollerStarted = true;
 
-  setInterval(() => {
+  const runSweep = () => {
     // A full-board sweep can take longer than a single job-drain tick — this
     // guards against two sweeps overlapping if one is still in flight when
     // the next interval fires.
@@ -35,5 +36,13 @@ export function startFulfillmentPoller(): void {
       .finally(() => {
         global.__fulfillmentPollerRunning = false;
       });
-  }, POLL_INTERVAL_MS).unref();
+  };
+
+  // The process restarts on every deploy (and whenever the host recycles
+  // it), which resets the interval below — with deploys more frequent than
+  // 30 minutes a sweep could otherwise never get to run. A first sweep
+  // shortly after start-up guarantees orders fulfilled in Shopify get picked
+  // up after each restart, not just after 30 uninterrupted minutes.
+  setTimeout(runSweep, INITIAL_SWEEP_DELAY_MS).unref();
+  setInterval(runSweep, POLL_INTERVAL_MS).unref();
 }
