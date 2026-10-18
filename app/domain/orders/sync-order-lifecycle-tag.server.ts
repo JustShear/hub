@@ -74,6 +74,7 @@ export async function syncOrderLifecycleTag(
   const order = await db.shopifyOrder.findFirst({
     where: { id: input.orderId, shopId: input.shopId },
     include: { shop: true },
+    omit: { rawPayload: true },
   });
   if (!order) {
     return { outcome: "rejected", reason: "Order not found." };

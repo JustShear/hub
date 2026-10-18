@@ -22,6 +22,8 @@ import { ExceptionsTab } from "~/components/order-drawer/exceptions/ExceptionsTa
 
 export interface OrderDrawerProps {
   order: OrderDetail;
+  /** Admin-only load diagnostics (see the drawer route's loader); null for everyone else. */
+  loadTiming?: { serverMs: number; dbPingMs: number } | null;
   shopDomain: string | null;
   assignableStaff: { id: string; name: string }[];
   canEditAssignment: boolean;
@@ -64,6 +66,7 @@ function nearestDueDate(order: OrderDetail) {
 
 export function OrderDrawer({
   order,
+  loadTiming,
   shopDomain,
   assignableStaff,
   canEditAssignment,
@@ -154,6 +157,15 @@ export function OrderDrawer({
                 <p className="mt-0.5 truncate text-sm text-muted">
                   {order.customerName ?? "No customer name on file"}
                 </p>
+                {loadTiming ? (
+                  <p
+                    className="mt-0.5 text-xs text-muted"
+                    title="Admin-only diagnostic: how long the server took to build this drawer, and one bare round trip to the database. A high DB figure means the app server and database are far apart."
+                  >
+                    Loaded in {loadTiming.serverMs}ms on the server · database round trip{" "}
+                    {loadTiming.dbPingMs}ms
+                  </p>
+                ) : null}
                 {order.customerEmail || order.customerPhone ? (
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
                     {order.customerEmail ? (

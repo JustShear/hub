@@ -16,6 +16,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
+  const startedAt = performance.now();
   const staffUser = await requireStaffUser(request);
 
   if (!hasPermission(staffUser, "orders.view")) {
@@ -26,6 +27,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const canViewIntegrations = hasPermission(staffUser, "integrations.view");
   const canEditAssignment = hasPermission(staffUser, "orders.assignment.update");
   const canAssignProofArtwork = hasPermission(staffUser, "proof_artwork.assign");
+
+  // Diagnostic for admins only: one trivial query timed on its own shows the
+  // raw app-server -> database round trip (high here = the two live in
+  // different regions), which is what multiplies the drawer's ~35 queries.
+  const canViewTiming = hasPermission(staffUser, "raw_data.view");
+  let dbPingMs: number | null = null;
+  if (canViewTiming) {
+    const pingStart = performance.now();
+    await db.$queryRaw`SELECT 1`;
+    dbPingMs = Math.round(performance.now() - pingStart);
+  }
 
   // The three lookups are independent of each other — run them together
   // rather than paying for the (comparatively cheap) shop/staff queries as
@@ -53,6 +65,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   return {
     order,
+    loadTiming:
+      dbPingMs === null
+        ? null
+        : { serverMs: Math.round(performance.now() - startedAt), dbPingMs },
     shopDomain: shop?.shopifyDomain ?? null,
     assignableStaff,
     canEditAssignment,

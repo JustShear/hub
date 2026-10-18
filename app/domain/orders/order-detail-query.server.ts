@@ -218,6 +218,10 @@ export async function loadOrderDetail(params: {
   // are simply discarded — a few cheap indexed reads wasted on a 404.
   const orderPromise = db.shopifyOrder.findFirst({
     where: { id: params.orderId, shopId: params.shopId },
+    // rawPayload (the full Shopify JSON, often 100KB+) is never shown in the
+    // drawer — it has its own inspector route — so don't haul it out of
+    // Postgres on every open.
+    omit: { rawPayload: true },
     include: {
       lines: {
         orderBy: { createdAt: "asc" },
