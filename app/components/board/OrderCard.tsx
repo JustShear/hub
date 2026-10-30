@@ -138,6 +138,11 @@ function OrderCardImpl({
       <div className="flex items-start justify-between gap-2">
         <Link
           to={{ pathname: `/orders/${card.id}`, search: linkSearch }}
+          // Starts loading the drawer's data the moment the pointer rests on
+          // (or keyboard focus reaches) the order number, so by the time of
+          // the click the network round trip to the server has mostly been
+          // paid — the server is far from the shop, so that trip dominates.
+          prefetch="intent"
           className="rounded text-left font-semibold text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
         >
           {card.orderNumber}
