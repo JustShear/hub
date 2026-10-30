@@ -156,7 +156,8 @@ export async function markOrderFulfilledManually(
       });
       return {
         outcome: "rejected",
-        reason: "No open Shopify fulfillment order was found for this order.",
+        reason:
+          'No open Shopify fulfillment order was found for this order. If it\'s already fulfilled in Shopify, open the order and use "Mark as fulfilled" on the Overview tab to update the Hub only.',
       };
     }
 
