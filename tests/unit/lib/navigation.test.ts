@@ -32,6 +32,14 @@ describe("getVisibleNavigation", () => {
     expect(allLabels).toContain("Orders");
   });
 
+  it("only shows Customers to staff who can view proof files", () => {
+    const labelsFor = (keys: string[]) =>
+      getVisibleNavigation(staffUserWith(keys)).flatMap((g) => g.items.map((i) => i.label));
+
+    expect(labelsFor(["proof_versions.view"])).toContain("Customers");
+    expect(labelsFor(["board.view"])).not.toContain("Customers");
+  });
+
   it("shows Dashboard to any signed-in staff member with no permissions", () => {
     const groups = getVisibleNavigation(staffUserWith([]));
     const allLabels = groups.flatMap((g) => g.items.map((i) => i.label));

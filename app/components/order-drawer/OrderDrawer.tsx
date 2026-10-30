@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AlertTriangle, Mail, MoreVertical, Phone, X } from "lucide-react";
 import type { OrderDetail } from "~/domain/orders/order-detail-query.server";
+import { customerKeyFor } from "~/domain/customers/customer-key";
 import { ORDER_STATUS_LABELS } from "~/domain/orders/labels";
 import { PriorityBadge } from "~/components/board/CardBadges";
 import { formatAuDate, formatAuDateTime } from "~/lib/dates";
@@ -29,6 +30,8 @@ export interface OrderDrawerProps {
   canEditAssignment: boolean;
   canEditPriority: boolean;
   canMarkFulfilled?: boolean;
+  /** Link the customer name through to their proof file (needs proof_versions.view). */
+  canViewCustomerFile?: boolean;
   canEditDueDates: boolean;
   canViewNotes: boolean;
   canCreateNotes: boolean;
@@ -73,6 +76,7 @@ export function OrderDrawer({
   canEditAssignment,
   canEditPriority,
   canMarkFulfilled = false,
+  canViewCustomerFile = false,
   canEditDueDates,
   canViewNotes,
   canCreateNotes,
@@ -103,6 +107,7 @@ export function OrderDrawer({
   const navigate = useNavigate();
   const location = useLocation();
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const customerFileKey = canViewCustomerFile ? customerKeyFor(order) : null;
 
   function close() {
     void navigate({ pathname: "/orders", search: location.search });
@@ -157,7 +162,16 @@ export function OrderDrawer({
                   ) : null}
                 </div>
                 <p className="mt-0.5 truncate text-sm text-muted">
-                  {order.customerName ?? "No customer name on file"}
+                  {customerFileKey ? (
+                    <Link
+                      to={`/customers/${customerFileKey}`}
+                      className="underline-offset-2 hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+                    >
+                      {order.customerName ?? "View customer file"}
+                    </Link>
+                  ) : (
+                    (order.customerName ?? "No customer name on file")
+                  )}
                 </p>
                 {loadTiming ? (
                   <p

@@ -74,6 +74,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     assignableStaff,
     canEditAssignment,
     canMarkFulfilled: hasPermission(staffUser, "board.manage"),
+    canViewCustomerFile: hasPermission(staffUser, "proof_versions.view"),
     canEditPriority: hasPermission(staffUser, "orders.priority.update"),
     canEditDueDates: hasPermission(staffUser, "orders.due_dates.update"),
     canViewNotes: hasPermission(staffUser, "notes.internal.view"),

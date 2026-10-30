@@ -8,6 +8,8 @@ export default [
     index("routes/home.tsx"),
     route("dashboard", "routes/dashboard.tsx"),
     route("integrations", "routes/integrations.tsx"),
+    route("customers", "routes/customers.tsx"),
+    route("customers/:customerKey", "routes/customers.$customerKey.tsx"),
     route("orders", "routes/orders.tsx", [
       route(":orderId", "routes/orders.$orderId.tsx"),
       route(":orderId/more", "routes/orders.$orderId.more.tsx"),

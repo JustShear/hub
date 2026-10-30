@@ -264,6 +264,7 @@ model ShopifyOrder {
   @@index([shopId, priority])
   @@index([shopId, proofSummary])
   @@index([shopId, warehousePickSummary])
+  @@index([shopId, customerShopifyGid])
 }
 
 model ShopifyOrderLine {

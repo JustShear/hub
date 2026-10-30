@@ -1,6 +1,7 @@
 import {
   Brush,
   ClipboardList,
+  Contact,
   Factory,
   FileSearch,
   LayoutDashboard,
@@ -52,6 +53,13 @@ export const NAVIGATION: NavGroup[] = [
         implemented: true,
       },
       { label: "Proofing", href: "/proofing", icon: Brush, implemented: false },
+      {
+        label: "Customers",
+        href: "/customers",
+        icon: Contact,
+        permission: "proof_versions.view",
+        implemented: true,
+      },
     ],
   },
   {
