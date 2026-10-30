@@ -24,11 +24,22 @@ async function main() {
     const shop = await db.shop.findFirstOrThrow();
     const activeOrders = await db.shopifyOrder.findMany({
       where: { shopId: shop.id, workflowStatus: { notIn: Object.values(SPECIAL_STATUSES) } },
-      select: { orderNumber: true, workflowStatus: true },
+      select: { orderNumber: true, workflowStatus: true, fulfillmentStatus: true },
     });
     console.log(`DRY RUN: ${activeOrders.length} order(s) currently active on the board.`);
+    console.log(
+      "This lists EVERY active order the Hub has — it does not ask Shopify, so most of these " +
+        "are expected to be genuinely unfulfilled. --apply is what checks Shopify and moves the " +
+        "fulfilled ones.",
+    );
     for (const order of activeOrders) {
-      console.log(`  would re-sync ${order.orderNumber} (${order.workflowStatus})`);
+      const stale =
+        order.fulfillmentStatus === "FULFILLED"
+          ? "  <-- Hub already knows Shopify has it FULFILLED"
+          : "";
+      console.log(
+        `  would re-sync ${order.orderNumber} (${order.workflowStatus}, Shopify: ${order.fulfillmentStatus ?? "unknown"})${stale}`,
+      );
     }
     console.log("Dry run complete — pass --apply to actually re-sync these against Shopify.");
     return;
