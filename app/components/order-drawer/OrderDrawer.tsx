@@ -28,6 +28,7 @@ export interface OrderDrawerProps {
   assignableStaff: { id: string; name: string }[];
   canEditAssignment: boolean;
   canEditPriority: boolean;
+  canMarkFulfilled?: boolean;
   canEditDueDates: boolean;
   canViewNotes: boolean;
   canCreateNotes: boolean;
@@ -71,6 +72,7 @@ export function OrderDrawer({
   assignableStaff,
   canEditAssignment,
   canEditPriority,
+  canMarkFulfilled = false,
   canEditDueDates,
   canViewNotes,
   canCreateNotes,
@@ -308,6 +310,7 @@ export function OrderDrawer({
                   assignableStaff={assignableStaff}
                   canEditAssignment={canEditAssignment}
                   canEditPriority={canEditPriority}
+                  canMarkFulfilled={canMarkFulfilled}
                   canEditDueDates={canEditDueDates}
                 />
               </Tabs.Content>

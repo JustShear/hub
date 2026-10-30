@@ -44,6 +44,25 @@ interface FulfillmentCreateResponse {
   };
 }
 
+// Fulfilment-order states that mean work is still pending in Shopify. If none
+// of these are present and at least one fulfilment order is CLOSED, Shopify
+// has already shipped everything — nothing is left for us to fulfil there.
+const STILL_PENDING_FULFILLMENT_ORDER_STATUSES = new Set([
+  "OPEN",
+  "IN_PROGRESS",
+  "ON_HOLD",
+  "SCHEDULED",
+  "INCOMPLETE",
+  "REQUEST_DECLINED",
+]);
+
+function isAlreadyFulfilledInShopify(nodes: { status: string }[]): boolean {
+  return (
+    nodes.some((node) => node.status === "CLOSED") &&
+    !nodes.some((node) => STILL_PENDING_FULFILLMENT_ORDER_STATUSES.has(node.status))
+  );
+}
+
 const ELIGIBLE_STATUSES: OrderStatus[] = [OrderStatus.READY_TO_PACK, OrderStatus.PACKING];
 
 export interface MarkOrderFulfilledManuallyInput {
@@ -53,8 +72,7 @@ export interface MarkOrderFulfilledManuallyInput {
 }
 
 export type MarkOrderFulfilledManuallyResult =
-  | { outcome: "fulfilled" }
-  | { outcome: "rejected"; reason: string };
+  { outcome: "fulfilled" } | { outcome: "rejected"; reason: string };
 
 /**
  * The "no label" counterpart to createFreightShipment — for orders that
@@ -96,6 +114,37 @@ export async function markOrderFulfilledManually(
       (node) => node.status === "OPEN",
     );
     if (!fulfillmentOrder) {
+      // Fulfilled directly in Shopify (outside the Hub): there is nothing
+      // left to fulfil there, so just bring the Hub in line rather than
+      // reporting a failure staff can do nothing about.
+      if (isAlreadyFulfilledInShopify(fulfillmentOrdersData.order?.fulfillmentOrders.nodes ?? [])) {
+        await db.$transaction([
+          db.shopifyOrder.update({
+            where: { id: order.id },
+            data: { workflowStatus: OrderStatus.FULFILLED, workflowStatusChangedAt: new Date() },
+          }),
+          db.activityEvent.create({
+            data: {
+              shopId: input.shopId,
+              orderId: order.id,
+              entityType: "ShopifyOrder",
+              entityId: order.id,
+              eventType: "order_fulfilled_manually",
+              summary: `Order ${order.orderNumber} was already fulfilled in Shopify and was marked fulfilled`,
+              metadata: { source: "already_fulfilled_in_shopify" },
+              actorStaffId: input.staffUserId,
+              actorType: ActorType.STAFF,
+            },
+          }),
+        ]);
+        await recordIntegrationSuccessAfterFailure(
+          input.shopId,
+          "SHOPIFY_FULFILLMENT",
+          "manual_fulfillment",
+          order.id,
+        );
+        return { outcome: "fulfilled" };
+      }
       await recordIntegrationFailure({
         shopId: input.shopId,
         integration: "SHOPIFY_FULFILLMENT",

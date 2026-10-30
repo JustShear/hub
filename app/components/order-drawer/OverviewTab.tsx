@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useFetcher } from "react-router";
 import type {
   OrderDetail,
   OrderDetailIntegrationIssue,
@@ -46,6 +47,7 @@ export interface OverviewTabProps {
   canEditAssignment: boolean;
   canEditPriority: boolean;
   canEditDueDates: boolean;
+  canMarkFulfilled?: boolean;
 }
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -57,12 +59,77 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+type MarkFulfilledResponse =
+  | { intent: "markFulfilled"; ok: true }
+  | { intent: "markFulfilled"; ok: false; error: string }
+  | undefined;
+
+// Manual escape hatch for an order the automatic Shopify sync can't resolve
+// (see mark-order-fulfilled.server.ts). Two-step so a stray click can't move
+// an order, and it says plainly that Shopify is not touched.
+function MarkFulfilledControl() {
+  const fetcher = useFetcher<MarkFulfilledResponse>();
+  const [confirming, setConfirming] = useState(false);
+  const busy = fetcher.state !== "idle";
+  const error = fetcher.data && !fetcher.data.ok ? fetcher.data.error : null;
+
+  return (
+    <section className="rounded-lg border border-border bg-surface p-3">
+      {confirming ? (
+        <fetcher.Form method="post" className="flex flex-col gap-2">
+          <input type="hidden" name="_intent" value="markFulfilled" />
+          <p className="text-sm text-ink">
+            Mark this order as fulfilled in the Hub? It will leave the board and move to the
+            Fulfilled tab. Nothing is changed in Shopify.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded bg-brand-navy px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {busy ? "Marking…" : "Yes, mark as fulfilled"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+              }}
+              className="rounded border border-border px-3 py-1.5 text-sm text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        </fetcher.Form>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted">Already fulfilled in Shopify but still on the board?</p>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirming(true);
+            }}
+            className="rounded border border-border px-3 py-1.5 text-sm font-medium text-ink hover:bg-page"
+          >
+            Mark as fulfilled
+          </button>
+        </div>
+      )}
+      {error ? <p className="mt-2 text-sm text-error">{error}</p> : null}
+    </section>
+  );
+}
+
+const NOT_MARKABLE_STATUSES = new Set(["FULFILLED", "CANCELLED", "ARCHIVED"]);
+
 export function OverviewTab({
   order,
   assignableStaff,
   canEditAssignment,
   canEditPriority,
   canEditDueDates,
+  canMarkFulfilled = false,
 }: OverviewTabProps) {
   const latestNote = order.notes[0] ?? null;
   // Collapsed by default — status/priority/assignment/due dates aren't
@@ -84,6 +151,10 @@ export function OverviewTab({
             ))}
           </div>
         </section>
+      ) : null}
+
+      {canMarkFulfilled && !NOT_MARKABLE_STATUSES.has(order.workflowStatus) ? (
+        <MarkFulfilledControl />
       ) : null}
 
       {order.cancelledAt ? (

@@ -8,6 +8,7 @@ import { updateOrderAssignment } from "~/domain/orders/update-assignment.server"
 import { updateOrderPriority } from "~/domain/orders/update-priority.server";
 import { setOrderDueDate } from "~/domain/orders/update-due-date.server";
 import { addOrderNote } from "~/domain/orders/add-note.server";
+import { markOrderFulfilled } from "~/domain/orders/mark-order-fulfilled.server";
 import { db } from "~/lib/db.server";
 import { OrderDrawer } from "~/components/order-drawer/OrderDrawer";
 
@@ -72,6 +73,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     shopDomain: shop?.shopifyDomain ?? null,
     assignableStaff,
     canEditAssignment,
+    canMarkFulfilled: hasPermission(staffUser, "board.manage"),
     canEditPriority: hasPermission(staffUser, "orders.priority.update"),
     canEditDueDates: hasPermission(staffUser, "orders.due_dates.update"),
     canViewNotes: hasPermission(staffUser, "notes.internal.view"),
@@ -204,6 +206,25 @@ export async function action({ request, params }: Route.ActionArgs) {
       return { intent: "setDueDate" as const, ok: false, error: result.reason };
     }
     return { intent: "setDueDate" as const, ok: true };
+  }
+
+  if (intent === "markFulfilled") {
+    if (!hasPermission(staffUser, "board.manage")) {
+      return {
+        intent: "markFulfilled" as const,
+        ok: false,
+        error: "You don't have permission to mark orders as fulfilled.",
+      };
+    }
+    const result = await markOrderFulfilled({
+      shopId: staffUser.shopId,
+      orderId,
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent: "markFulfilled" as const, ok: false, error: result.reason };
+    }
+    return { intent: "markFulfilled" as const, ok: true };
   }
 
   if (intent === "addNote") {

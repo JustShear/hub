@@ -64,7 +64,7 @@ function makeOrder(overrides: Partial<OrderDetail> = {}): OrderDetail {
   };
 }
 
-function renderOverview(order: OrderDetail) {
+function renderOverview(order: OrderDetail, canMarkFulfilled = false) {
   const Stub = createRoutesStub([
     {
       path: "/orders/:orderId",
@@ -75,6 +75,7 @@ function renderOverview(order: OrderDetail) {
           canEditAssignment={true}
           canEditPriority={true}
           canEditDueDates={true}
+          canMarkFulfilled={canMarkFulfilled}
         />
       ),
     },
@@ -85,9 +86,10 @@ function renderOverview(order: OrderDetail) {
 describe("OverviewTab", () => {
   it("keeps the internal workflow details collapsed by default", () => {
     renderOverview(makeOrder());
-    expect(
-      screen.getByRole("button", { name: /internal workflow/i }),
-    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: /internal workflow/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(screen.queryByText("Workflow status")).not.toBeInTheDocument();
     expect(screen.queryByText("Time in this status")).not.toBeInTheDocument();
   });
@@ -118,5 +120,31 @@ describe("OverviewTab", () => {
     renderOverview(makeOrder());
     expect(screen.getByText("Order summary (from Shopify — read only)")).toBeInTheDocument();
     expect(screen.getByText("Proof requirement")).toBeInTheDocument();
+  });
+
+  describe("Mark as fulfilled", () => {
+    it("is hidden without permission", () => {
+      renderOverview(makeOrder(), false);
+      expect(screen.queryByRole("button", { name: "Mark as fulfilled" })).not.toBeInTheDocument();
+    });
+
+    it.each([OrderStatus.FULFILLED, OrderStatus.CANCELLED, OrderStatus.ARCHIVED])(
+      "is hidden for an order already %s",
+      (workflowStatus) => {
+        renderOverview(makeOrder({ workflowStatus }), true);
+        expect(screen.queryByRole("button", { name: "Mark as fulfilled" })).not.toBeInTheDocument();
+      },
+    );
+
+    it("asks for confirmation first and says Shopify is untouched", () => {
+      renderOverview(makeOrder(), true);
+      fireEvent.click(screen.getByRole("button", { name: "Mark as fulfilled" }));
+
+      expect(screen.getByText(/Nothing is changed in Shopify/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Yes, mark as fulfilled" })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(screen.getByRole("button", { name: "Mark as fulfilled" })).toBeInTheDocument();
+    });
   });
 });
