@@ -325,6 +325,7 @@ export function OrderDrawer({
                   canEditAssignment={canEditAssignment}
                   canEditPriority={canEditPriority}
                   canMarkFulfilled={canMarkFulfilled}
+                  canViewPreviousProofs={canViewCustomerFile}
                   canEditDueDates={canEditDueDates}
                 />
               </Tabs.Content>

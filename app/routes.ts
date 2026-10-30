@@ -15,6 +15,7 @@ export default [
       route(":orderId/more", "routes/orders.$orderId.more.tsx"),
       route(":orderId/proof-groups", "routes/orders.$orderId.proof-groups.tsx"),
       route(":orderId/freight", "routes/orders.$orderId.freight.tsx"),
+      route(":orderId/previous-proofs", "routes/orders.$orderId.previous-proofs.tsx"),
     ]),
     route("orders/column", "routes/orders.column.tsx"),
     route("warehouse", "routes/warehouse.tsx", [route(":jobId", "routes/warehouse.$jobId.tsx")]),

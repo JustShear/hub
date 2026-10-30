@@ -10,6 +10,7 @@ import { AssignmentEditor } from "~/components/order-drawer/AssignmentEditor";
 import { PriorityEditor } from "~/components/order-drawer/PriorityEditor";
 import { DueDatesEditor } from "~/components/order-drawer/DueDatesEditor";
 import { ErrorAlert } from "~/components/shared/ErrorAlert";
+import { PreviousAcceptedProofs } from "~/components/order-drawer/PreviousAcceptedProofs";
 import { formatAuDateTime } from "~/lib/dates";
 import { formatAuDate } from "~/lib/dates";
 
@@ -48,6 +49,8 @@ export interface OverviewTabProps {
   canEditPriority: boolean;
   canEditDueDates: boolean;
   canMarkFulfilled?: boolean;
+  /** Show this customer's accepted proofs from their other orders (needs proof_versions.view). */
+  canViewPreviousProofs?: boolean;
 }
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -130,6 +133,7 @@ export function OverviewTab({
   canEditPriority,
   canEditDueDates,
   canMarkFulfilled = false,
+  canViewPreviousProofs = false,
 }: OverviewTabProps) {
   const latestNote = order.notes[0] ?? null;
   // Collapsed by default — status/priority/assignment/due dates aren't
@@ -218,6 +222,8 @@ export function OverviewTab({
           </>
         ) : null}
       </section>
+
+      {canViewPreviousProofs ? <PreviousAcceptedProofs orderId={order.id} /> : null}
 
       <section>
         <h3 className="text-sm font-semibold text-ink">Order summary (from Shopify — read only)</h3>

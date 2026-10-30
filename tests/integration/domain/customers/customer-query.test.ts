@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ProofVersionStatus } from "@prisma/client";
 import { db } from "~/lib/db.server";
-import { loadCustomerProofFile, listCustomers } from "~/domain/customers/customer-query.server";
+import {
+  listCustomers,
+  loadCustomerProofFile,
+  loadPreviousAcceptedProofs,
+} from "~/domain/customers/customer-query.server";
 
 describe("customer queries (integration)", () => {
   const runId = randomUUID().slice(0, 8);
@@ -225,5 +229,55 @@ describe("customer queries (integration)", () => {
       identity: { kind: "shopify", shopifyCustomerId: customerId },
     });
     expect(result).toBeNull();
+  });
+
+  describe("loadPreviousAcceptedProofs", () => {
+    it("returns the customer's accepted proofs from their OTHER orders only", async () => {
+      const current = await makeOrder(`#PP-${runId}-cur`);
+      const earlier = await makeOrder(`#PP-${runId}-old`);
+      await makeGroup(current.id, "This order logo", [{ status: "APPROVED" }]);
+      const old = await makeGroup(earlier.id, "Earlier logo", [
+        { status: "CHANGES_REQUESTED" },
+        { status: "APPROVED" },
+      ]);
+      await makeGroup(earlier.id, "Cancelled one", [{ status: "APPROVED" }], "CANCELLED");
+
+      const result = await loadPreviousAcceptedProofs({ shopId, orderId: current.id });
+
+      expect(result.customerKey).toBe(`s-${customerId}`);
+      const forEarlier = result.proofs.filter((p) => p.orderId === earlier.id);
+      expect(forEarlier.map((p) => p.groupName)).toEqual(["Earlier logo"]);
+      expect(forEarlier[0]).toMatchObject({
+        versionNumber: 2,
+        orderNumber: `#PP-${runId}-old`,
+        assetId: old.created[1]?.asset?.id,
+      });
+      expect(result.proofs.some((p) => p.orderId === current.id)).toBe(false);
+      expect(result.totalCount).toBeGreaterThanOrEqual(result.proofs.length);
+    });
+
+    it("caps the list but still reports the true total", async () => {
+      const current = await makeOrder(`#PP-${runId}-cap`);
+      const result = await loadPreviousAcceptedProofs({ shopId, orderId: current.id, limit: 1 });
+      expect(result.proofs).toHaveLength(1);
+      expect(result.totalCount).toBeGreaterThan(1);
+    });
+
+    it("is empty for an order with no customer identity, and for an unknown order", async () => {
+      const anonymous = await makeOrder(`#PP-${runId}-anon`, {
+        customerShopifyGid: null,
+        customerEmail: null,
+      });
+      expect(await loadPreviousAcceptedProofs({ shopId, orderId: anonymous.id })).toEqual({
+        customerKey: null,
+        proofs: [],
+        totalCount: 0,
+      });
+      expect(await loadPreviousAcceptedProofs({ shopId, orderId: randomUUID() })).toEqual({
+        customerKey: null,
+        proofs: [],
+        totalCount: 0,
+      });
+    });
   });
 });

@@ -3,6 +3,7 @@ import { db } from "~/lib/db.server";
 import {
   customerKeyFor,
   customerOrderWhere,
+  parseCustomerKey,
   type CustomerIdentity,
 } from "~/domain/customers/customer-key";
 
@@ -256,4 +257,89 @@ export async function loadCustomerProofFile(input: {
     accepted,
     changesRequested,
   };
+}
+
+// --- Previously accepted proofs, for the order drawer -----------------------
+
+export interface PreviousAcceptedProofs {
+  /** Null when the order carries nothing to identify the customer by. */
+  customerKey: string | null;
+  /** Newest first, capped at `limit`. */
+  proofs: CustomerProofCard[];
+  /** How many there are in total, so the UI can say "and 5 more". */
+  totalCount: number;
+}
+
+/**
+ * The final approved proof of each proof group on the customer's OTHER
+ * orders - what staff want to glance at when a repeat customer's new order
+ * comes in ("have we made this logo before?"). Deliberately a lean query of
+ * its own rather than loadCustomerProofFile: it runs for every order the
+ * drawer opens, and doesn't need the change-request history.
+ */
+export async function loadPreviousAcceptedProofs(input: {
+  shopId: string;
+  orderId: string;
+  limit?: number;
+}): Promise<PreviousAcceptedProofs> {
+  const limit = input.limit ?? 8;
+  const order = await db.shopifyOrder.findFirst({
+    where: { id: input.orderId, shopId: input.shopId },
+    select: { customerShopifyGid: true, customerEmail: true },
+  });
+  const customerKey = order ? customerKeyFor(order) : null;
+  const identity = customerKey ? parseCustomerKey(customerKey) : null;
+  if (!identity) {
+    return { customerKey: null, proofs: [], totalCount: 0 };
+  }
+
+  const groups = await db.proofGroup.findMany({
+    where: {
+      status: { not: "CANCELLED" },
+      versions: { some: { status: "APPROVED" } },
+      order: { shopId: input.shopId, id: { not: input.orderId }, ...customerOrderWhere(identity) },
+    },
+    select: {
+      name: true,
+      decorationMethod: true,
+      order: { select: { id: true, orderNumber: true } },
+      versions: {
+        where: { status: "APPROVED" },
+        orderBy: { versionNumber: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          versionNumber: true,
+          createdAt: true,
+          approvedAt: true,
+          respondedAt: true,
+          assets: {
+            orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+            take: 1,
+            select: { id: true, mimeType: true },
+          },
+        },
+      },
+    },
+  });
+
+  const cards: CustomerProofCard[] = [];
+  for (const group of groups) {
+    const version = group.versions[0];
+    if (!version) continue;
+    cards.push({
+      versionId: version.id,
+      assetId: version.assets[0]?.id ?? null,
+      mimeType: version.assets[0]?.mimeType ?? null,
+      orderId: group.order.id,
+      orderNumber: group.order.orderNumber,
+      groupName: group.name,
+      decorationMethod: group.decorationMethod,
+      versionNumber: version.versionNumber,
+      at: (version.approvedAt ?? version.respondedAt ?? version.createdAt).toISOString(),
+    });
+  }
+  cards.sort((a, b) => b.at.localeCompare(a.at));
+
+  return { customerKey, proofs: cards.slice(0, limit), totalCount: cards.length };
 }
