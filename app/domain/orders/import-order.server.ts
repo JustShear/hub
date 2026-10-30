@@ -1,4 +1,10 @@
-import { Prisma, ActorType, OrderStatus, type ShopifyOrder, type ShopifyOrderLine } from "@prisma/client";
+import {
+  Prisma,
+  ActorType,
+  OrderStatus,
+  type ShopifyOrder,
+  type ShopifyOrderLine,
+} from "@prisma/client";
 import { db } from "~/lib/db.server";
 import {
   fetchShopifyOrder,
@@ -22,6 +28,8 @@ export interface ImportShopifyOrderResult {
   wasNewOrder: boolean;
   wasCancelledJustNow: boolean;
   wasFulfilledJustNow: boolean;
+  /** Shopify has the order cancelled and the Hub moved it to Cancelled in this sync. */
+  wasMovedToCancelled: boolean;
   wasExportedForPrintJustNow: boolean;
   changeDescriptions: string[];
 }
@@ -117,18 +125,21 @@ export async function importShopifyOrder(
   const wasNewOrder = !existingOrder;
   const wasCancelledJustNow = Boolean(rawOrder.cancelledAt) && !existingOrder?.cancelledAt;
 
-  // Deliberate, narrow exception to "a Shopify sync never overwrites
-  // Hub-owned fields": if staff fulfil an order directly in Shopify —
-  // outside the Hub entirely, which happens during the migration period
-  // while the team is still getting used to the board — the Hub would
-  // otherwise never notice, and the card would sit wherever it was
-  // forever. Scoped tightly: only fires when Shopify says fully FULFILLED,
-  // the order isn't already in a special status (on hold/cancelled/
-  // archived/already fulfilled — never silently override those), and it
-  // didn't just get cancelled in this same sync.
+  // Deliberate, narrow exceptions to "a Shopify sync never overwrites
+  // Hub-owned fields": if staff cancel or fulfil an order directly in
+  // Shopify — outside the Hub entirely — the Hub would otherwise never
+  // notice, and the card would sit wherever it was forever. Both only fire
+  // when the order isn't already in a special status (on hold/cancelled/
+  // archived/already fulfilled — never silently override those). Cancelled
+  // wins over fulfilled: a cancelled order is cancelled whatever Shopify's
+  // fulfilment status says. Because this checks the current state rather
+  // than the transition, a later sync also catches orders that were
+  // cancelled before this rule existed.
   const currentWorkflowStatus = existingOrder?.workflowStatus ?? OrderStatus.NEW;
+  const isCancelledInShopify = Boolean(rawOrder.cancelledAt);
+  const shouldMoveToCancelled = isCancelledInShopify && !isSpecialStatus(currentWorkflowStatus);
   const wasFulfilledJustNow =
-    !wasCancelledJustNow &&
+    !isCancelledInShopify &&
     rawOrder.displayFulfillmentStatus === "FULFILLED" &&
     !isSpecialStatus(currentWorkflowStatus);
 
@@ -149,9 +160,11 @@ export async function importShopifyOrder(
     ? rawChangeDescriptions.filter((d) => d !== "Fulfilment status changed")
     : rawChangeDescriptions;
 
-  const fulfillmentSyncFields = wasFulfilledJustNow
-    ? { workflowStatus: OrderStatus.FULFILLED, workflowStatusChangedAt: new Date() }
-    : {};
+  const fulfillmentSyncFields = shouldMoveToCancelled
+    ? { workflowStatus: OrderStatus.CANCELLED, workflowStatusChangedAt: new Date() }
+    : wasFulfilledJustNow
+      ? { workflowStatus: OrderStatus.FULFILLED, workflowStatusChangedAt: new Date() }
+      : {};
 
   const shopifyOwnedFields = {
     orderNumber: rawOrder.name,
@@ -326,6 +339,27 @@ export async function importShopifyOrder(
       // If nothing changed at all, only lastSyncedAt was touched above —
       // no activity event, so routine re-syncs don't create noise.
 
+      if (shouldMoveToCancelled && !wasCancelledJustNow && !wasNewOrder) {
+        // The just-cancelled case already logged ORDER_CANCELLED above; this
+        // covers an order that was already cancelled in Shopify but still
+        // sitting on the board.
+        await tx.activityEvent.create({
+          data: {
+            shopId,
+            orderId: order.id,
+            entityType: "ShopifyOrder",
+            entityId: order.id,
+            eventType: "ORDER_CANCELLED",
+            summary: `Order ${order.orderNumber} is cancelled in Shopify and was moved off the board automatically`,
+            metadata: {
+              source: "shopify_cancellation_sync",
+              previousWorkflowStatus: currentWorkflowStatus,
+            },
+            actorType: ActorType.SYSTEM,
+          },
+        });
+      }
+
       if (wasFulfilledJustNow) {
         // Not an `else if` above — a brand-new order that arrives already
         // fulfilled should get both ORDER_IMPORTED and this event.
@@ -337,7 +371,10 @@ export async function importShopifyOrder(
             entityId: order.id,
             eventType: "ORDER_FULFILLED_IN_SHOPIFY",
             summary: `Order ${order.orderNumber} was fulfilled directly in Shopify and moved to Fulfilled automatically`,
-            metadata: { source: "shopify_fulfillment_sync", previousWorkflowStatus: currentWorkflowStatus },
+            metadata: {
+              source: "shopify_fulfillment_sync",
+              previousWorkflowStatus: currentWorkflowStatus,
+            },
             actorType: ActorType.SYSTEM,
           },
         });
@@ -361,6 +398,7 @@ export async function importShopifyOrder(
     wasNewOrder,
     wasCancelledJustNow,
     wasFulfilledJustNow,
+    wasMovedToCancelled: shouldMoveToCancelled,
     wasExportedForPrintJustNow,
     changeDescriptions,
   };

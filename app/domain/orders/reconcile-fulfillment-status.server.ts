@@ -14,8 +14,9 @@ import {
 //
 // Re-syncs every order currently active on the board (i.e. not already
 // on_hold/cancelled/archived/fulfilled) against real Shopify data, giving
-// importShopifyOrder's wasFulfilledJustNow guard a chance to fire for any
-// order that was fulfilled directly in Shopify since its last sync. This
+// importShopifyOrder's wasFulfilledJustNow / wasMovedToCancelled rules a
+// chance to fire for any order that was fulfilled or cancelled directly in
+// Shopify since its last sync. This
 // exists because webhooks are the only thing that normally triggers a
 // re-sync — nothing else notices a state change on an order already sitting
 // in the Hub, so a missed or pre-cutover webhook would otherwise leave that
@@ -34,6 +35,7 @@ function sleep(ms: number): Promise<void> {
 export interface ReconcileFulfillmentStatusResult {
   checked: number;
   movedToFulfilled: number;
+  movedToCancelled: number;
   unchanged: number;
   failed: number;
 }
@@ -50,6 +52,7 @@ export async function reconcileFulfillmentStatus(
   });
 
   let movedToFulfilled = 0;
+  let movedToCancelled = 0;
   let unchanged = 0;
   let failed = 0;
 
@@ -62,7 +65,9 @@ export async function reconcileFulfillmentStatus(
 
     try {
       const result = await importShopifyOrder(shop.id, order.shopifyOrderGid);
-      if (result.wasFulfilledJustNow) {
+      if (result.wasMovedToCancelled) {
+        movedToCancelled += 1;
+      } else if (result.wasFulfilledJustNow) {
         movedToFulfilled += 1;
       } else {
         unchanged += 1;
@@ -96,5 +101,5 @@ export async function reconcileFulfillmentStatus(
     await sleep(delayBetweenOrdersMs);
   }
 
-  return { checked: activeOrders.length, movedToFulfilled, unchanged, failed };
+  return { checked: activeOrders.length, movedToFulfilled, movedToCancelled, unchanged, failed };
 }

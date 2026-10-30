@@ -108,6 +108,8 @@ The poller is a `setInterval` inside the same Node process serving requests — 
 
 Shopify-owned: customer info, tags, financial/fulfilment status, addresses, totals, discounts, cancellation fields, line item product/variant/quantity/image data, line properties.
 
+**Exception — cancel/fulfil in Shopify:** `importShopifyOrder` moves an order that is not already `ON_HOLD`/`CANCELLED`/`ARCHIVED`/`FULFILLED` to `CANCELLED` whenever Shopify shows it cancelled, otherwise to `FULFILLED` when Shopify shows it fully fulfilled (cancelled wins). It checks current state, not the transition, so the background sweep (`reconcileFulfillmentStatus`, run 2 min after start-up then every 30 min, or `npm run backfill:fulfillment-sync -- --apply`) also clears orders that were cancelled/fulfilled before a webhook was missed. `npm run check:order-fulfillment -- <order numbers>` is a read-only diagnostic comparing the Hub with Shopify.
+
 Hub-owned: `workflowStatus`, `proofSummary`, `priority`, assignments, due dates, notes, manual overrides, proof groups/versions, integration failures.
 
 ## OPTIS property-preservation strategy

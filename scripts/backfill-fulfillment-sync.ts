@@ -49,6 +49,7 @@ async function main() {
   const result = await reconcileFulfillmentStatus();
   console.log(
     `Done: checked ${result.checked}, ${result.movedToFulfilled} moved to Fulfilled, ` +
+      `${result.movedToCancelled} moved to Cancelled, ` +
       `${result.unchanged} unchanged, ${result.failed} failed.`,
   );
 }

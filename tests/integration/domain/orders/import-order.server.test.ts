@@ -232,6 +232,79 @@ describe("importShopifyOrder (integration)", () => {
     expect(order.cancelReason).toBe("CUSTOMER");
     expect(order.lines).toHaveLength(1); // not deleted
     expect(order.activity.some((e) => e.eventType === "ORDER_CANCELLED")).toBe(true);
+    // A cancellation in Shopify takes the card off the board.
+    expect(result.wasMovedToCancelled).toBe(true);
+    expect(order.workflowStatus).toBe("CANCELLED");
+  });
+
+  it("moves an order that was cancelled earlier but is still on the board to Cancelled on a later sync", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder();
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+
+    // Simulates an order cancelled before the move-to-Cancelled rule existed.
+    await db.shopifyOrder.update({
+      where: { id: created.orderId },
+      data: { workflowStatus: "READY_TO_PACK", cancelledAt: new Date("2026-07-05T00:00:00Z") },
+    });
+
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(
+      buildRawOrder({ id: raw.id, cancelledAt: "2026-07-05T00:00:00Z" }),
+    );
+    const result = await importShopifyOrder(shop.id, raw.id);
+
+    expect(result.wasCancelledJustNow).toBe(false);
+    expect(result.wasMovedToCancelled).toBe(true);
+    const order = await db.shopifyOrder.findUniqueOrThrow({
+      where: { id: created.orderId },
+      include: { activity: true },
+    });
+    expect(order.workflowStatus).toBe("CANCELLED");
+    expect(order.activity.some((e) => e.eventType === "ORDER_CANCELLED")).toBe(true);
+  });
+
+  it("treats a cancelled-and-fulfilled order as Cancelled, not Fulfilled", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder();
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(
+      buildRawOrder({
+        id: raw.id,
+        cancelledAt: "2026-07-05T00:00:00Z",
+        displayFulfillmentStatus: "FULFILLED",
+      }),
+    );
+    const result = await importShopifyOrder(shop.id, raw.id);
+
+    expect(result.wasFulfilledJustNow).toBe(false);
+    const order = await db.shopifyOrder.findUniqueOrThrow({ where: { id: created.orderId } });
+    expect(order.workflowStatus).toBe("CANCELLED");
+  });
+
+  it("does not move a cancelled order that is on hold or archived", async () => {
+    const shop = await getShop();
+    const raw = buildRawOrder();
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+    await db.shopifyOrder.update({
+      where: { id: created.orderId },
+      data: { workflowStatus: "ARCHIVED" },
+    });
+
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(
+      buildRawOrder({ id: raw.id, cancelledAt: "2026-07-05T00:00:00Z" }),
+    );
+    const result = await importShopifyOrder(shop.id, raw.id);
+
+    expect(result.wasMovedToCancelled).toBe(false);
+    const order = await db.shopifyOrder.findUniqueOrThrow({ where: { id: created.orderId } });
+    expect(order.workflowStatus).toBe("ARCHIVED");
   });
 
   it("imports multiple order lines correctly", async () => {
@@ -577,7 +650,9 @@ describe("importShopifyOrder (integration)", () => {
     const created = await importShopifyOrder(shop.id, raw.id);
     createdOrderIds.push(created.orderId);
     expect(created.wasExportedForPrintJustNow).toBe(false);
-    expect(await db.warehousePickJob.findUnique({ where: { orderId: created.orderId } })).toBeNull();
+    expect(
+      await db.warehousePickJob.findUnique({ where: { orderId: created.orderId } }),
+    ).toBeNull();
 
     vi.mocked(fetchShopifyOrder).mockResolvedValue(
       buildRawOrder({ id: raw.id, tags: ["preorder", "Exported for Print"] }),
