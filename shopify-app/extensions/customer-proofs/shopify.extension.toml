@@ -17,5 +17,9 @@ type = "ui_extension"
   # Needed to call the Hub (an external server). Shopify must also approve
   # network access for the app in the Dev Dashboard before this works in
   # production.
-  [extensions.capabilities]
-  network_access = true
+  # TEMPORARY DIAGNOSTIC (js-v2-9): network access removed to test whether the
+  # unapproved capability is why Shopify does not start the extension. With it
+  # off, the page should render and show the "couldn't load" banner (fetch is
+  # blocked). Restore the block below afterwards.
+  # [extensions.capabilities]
+  # network_access = true
