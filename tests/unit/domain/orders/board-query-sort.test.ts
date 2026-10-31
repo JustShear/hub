@@ -30,6 +30,7 @@ function makeCard(overrides: Partial<BoardCard>): BoardCard {
     hasShortPickItems: false,
     hasOpenExceptionCase: false,
     hasCustomerUpload: false,
+    hasReusedArtwork: false,
     hasDecorationLineMarker: false,
     hasEmbroideryLineMarker: false,
     hasGreenLineMarker: false,

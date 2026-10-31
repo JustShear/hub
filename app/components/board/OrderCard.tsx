@@ -15,6 +15,7 @@ import {
   MailWarning,
   MessageSquareWarning,
   PackageSearch,
+  Repeat2,
   ShieldAlert,
   Truck,
   TriangleAlert,
@@ -107,6 +108,7 @@ function OrderCardImpl({
     card.hasShortPickItems ||
     card.warehousePickSummary === "IN_PROGRESS" ||
     card.hasOpenExceptionCase ||
+    card.hasReusedArtwork ||
     card.hasIntegrationIssue;
 
   return (
@@ -235,6 +237,9 @@ function OrderCardImpl({
 
       {hasIndicators ? (
         <div className="flex flex-wrap gap-1.5">
+          {card.hasReusedArtwork ? (
+            <IndicatorChip icon={Repeat2} label="Reorder: reused artwork" tone="success" />
+          ) : null}
           {card.isPreorder ? (
             <IndicatorChip icon={CalendarClock} label="Preorder" tone="neutral" />
           ) : null}

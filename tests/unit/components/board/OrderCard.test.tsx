@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import { DndContext } from "@dnd-kit/core";
-import { OrderProofSummary, OrderStatus, OrderWarehousePickSummary, Priority } from "@prisma/client";
+import {
+  OrderProofSummary,
+  OrderStatus,
+  OrderWarehousePickSummary,
+  Priority,
+} from "@prisma/client";
 import { OrderCard } from "~/components/board/OrderCard";
 import type { BoardCard } from "~/domain/orders/board-query.server";
 
@@ -34,6 +39,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     hasShortPickItems: false,
     hasOpenExceptionCase: false,
     hasCustomerUpload: false,
+    hasReusedArtwork: false,
     hasDecorationLineMarker: false,
     hasEmbroideryLineMarker: false,
     hasGreenLineMarker: false,
@@ -303,6 +309,16 @@ describe("OrderCard", () => {
     );
   });
 
+  it("shows a visible 'Reorder: reused artwork' chip when the proof was auto-approved from a previous order", () => {
+    renderCard(makeCard({ orderNumber: "#1011", hasReusedArtwork: true }), true);
+    expect(screen.getByText("Reorder: reused artwork")).toBeInTheDocument();
+  });
+
+  it("shows no reused-artwork chip on an ordinary card", () => {
+    renderCard(makeCard({ orderNumber: "#1012", hasReusedArtwork: false }), true);
+    expect(screen.queryByText("Reorder: reused artwork")).not.toBeInTheDocument();
+  });
+
   it("shows a purple flag when the customer left a note at checkout", () => {
     renderCard(makeCard({ orderNumber: "#1010", hasCustomerNote: true }), true);
     expect(screen.getByTitle("Customer left a note at checkout")).toBeInTheDocument();
@@ -316,7 +332,10 @@ describe("OrderCard", () => {
   it.each(["proof_approved", "exported_for_print"] as const)(
     "shows a red exclamation badge in the %s column when a proof isn't approved or the order isn't paid in full",
     (columnKey) => {
-      renderCard(makeCard({ orderNumber: "#1012", columnKey, hasApprovalOrPaymentIssue: true }), true);
+      renderCard(
+        makeCard({ orderNumber: "#1012", columnKey, hasApprovalOrPaymentIssue: true }),
+        true,
+      );
       expect(
         screen.getByTitle("Not every proof is approved yet, or the order isn't paid in full"),
       ).toBeInTheDocument();
@@ -325,7 +344,11 @@ describe("OrderCard", () => {
 
   it("hides the exclamation badge in Proof Approved/Exported for Print once resolved", () => {
     renderCard(
-      makeCard({ orderNumber: "#1013", columnKey: "proof_approved", hasApprovalOrPaymentIssue: false }),
+      makeCard({
+        orderNumber: "#1013",
+        columnKey: "proof_approved",
+        hasApprovalOrPaymentIssue: false,
+      }),
       true,
     );
     expect(

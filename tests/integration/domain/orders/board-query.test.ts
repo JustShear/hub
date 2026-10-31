@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   AssignmentRole,
   DueDateSource,
@@ -18,19 +18,53 @@ describe("loadBoardColumns (integration)", () => {
   const createdOrderIds: string[] = [];
   const createdStaffUserIds: string[] = [];
 
-  afterAll(async () => {
+  // After EACH test, not once at the end: the board shows at most 40 cards per
+  // column, so orders left over from earlier tests would push a later test's
+  // card out of view and make it fail for reasons unrelated to what it checks.
+  // Also deletes everything hanging off an order's lines and proof groups -
+  // missing those deletes used to make this cleanup throw halfway, leaking
+  // orders into the shared database for every later run.
+  afterEach(async () => {
     if (createdOrderIds.length > 0) {
+      const lineIds = (
+        await db.shopifyOrderLine.findMany({
+          where: { orderId: { in: createdOrderIds } },
+          select: { id: true },
+        })
+      ).map((l) => l.id);
+      const groupIds = (
+        await db.proofGroup.findMany({
+          where: { orderId: { in: createdOrderIds } },
+          select: { id: true },
+        })
+      ).map((g) => g.id);
+      const versionIds = (
+        await db.proofVersion.findMany({
+          where: { proofGroupId: { in: groupIds } },
+          select: { id: true },
+        })
+      ).map((v) => v.id);
+
       await db.orderAssignment.deleteMany({ where: { orderId: { in: createdOrderIds } } });
       await db.orderDueDate.deleteMany({ where: { orderId: { in: createdOrderIds } } });
       await db.integrationFailure.deleteMany({
         where: { relatedOrderId: { in: createdOrderIds } },
       });
-      await db.proofGroup.deleteMany({ where: { orderId: { in: createdOrderIds } } });
-      await db.shopifyOrderLine.deleteMany({ where: { orderId: { in: createdOrderIds } } });
+      await db.proofAsset.deleteMany({ where: { proofVersionId: { in: versionIds } } });
+      await db.proofVersion.deleteMany({ where: { id: { in: versionIds } } });
+      await db.proofGroupOrderLine.deleteMany({ where: { proofGroupId: { in: groupIds } } });
+      await db.proofRequirement.deleteMany({ where: { orderId: { in: createdOrderIds } } });
+      await db.proofGroup.deleteMany({ where: { id: { in: groupIds } } });
+      await db.artworkOrderLineLink.deleteMany({ where: { orderLineId: { in: lineIds } } });
+      await db.shopifyLineProperty.deleteMany({ where: { orderLineId: { in: lineIds } } });
+      await db.shopifyOrderLine.deleteMany({ where: { id: { in: lineIds } } });
+      await db.activityEvent.deleteMany({ where: { orderId: { in: createdOrderIds } } });
       await db.shopifyOrder.deleteMany({ where: { id: { in: createdOrderIds } } });
+      createdOrderIds.length = 0;
     }
     if (createdStaffUserIds.length > 0) {
       await db.staffUser.deleteMany({ where: { id: { in: createdStaffUserIds } } });
+      createdStaffUserIds.length = 0;
     }
   });
 
@@ -893,5 +927,62 @@ describe("loadBoardColumns (integration)", () => {
     });
     card = result.columns.flatMap((c) => c.cards).find((c) => c.id === order.id);
     expect(card?.hasApprovalOrPaymentIssue).toBe(false);
+  });
+
+  it("flags hasReusedArtwork for an order with an auto-approved reused proof, and clears when it is undone", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const makeOrder = async () => {
+      const order = await db.shopifyOrder.create({
+        data: {
+          shopId: shop.id,
+          shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+          orderNumber: `#board-test-${randomUUID()}`,
+          shopifyCreatedAt: new Date(),
+          tags: [],
+          rawPayload: {},
+          workflowStatus: OrderStatus.NEW,
+        },
+      });
+      createdOrderIds.push(order.id);
+      return order;
+    };
+    const reusedOrder = await makeOrder();
+    const plainOrder = await makeOrder();
+    const group = await db.proofGroup.create({
+      data: {
+        orderId: reusedOrder.id,
+        name: "Reorder: Left chest",
+        decorationMethod: "EMBROIDERY",
+        status: "APPROVED",
+      },
+    });
+    const version = await db.proofVersion.create({
+      data: {
+        proofGroupId: group.id,
+        versionNumber: 1,
+        status: "APPROVED",
+        createdByStaffId: "system:reorder",
+        reusedFromVersionId: "some-earlier-version",
+      },
+    });
+    const load = async () => {
+      const result = await loadBoardColumns({
+        shopId: shop.id,
+        filters: EMPTY_BOARD_FILTERS,
+        sort: { field: "urgency_default" },
+        currentStaffUserId: "irrelevant",
+      });
+      return result.columns.flatMap((c) => c.cards);
+    };
+
+    let cards = await load();
+    expect(cards.find((c) => c.id === reusedOrder.id)?.hasReusedArtwork).toBe(true);
+    expect(cards.find((c) => c.id === plainOrder.id)?.hasReusedArtwork).toBe(false);
+
+    // Undoing a reuse cancels the group and its version.
+    await db.proofVersion.update({ where: { id: version.id }, data: { status: "CANCELLED" } });
+    await db.proofGroup.update({ where: { id: group.id }, data: { status: "CANCELLED" } });
+    cards = await load();
+    expect(cards.find((c) => c.id === reusedOrder.id)?.hasReusedArtwork).toBe(false);
   });
 });

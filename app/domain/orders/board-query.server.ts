@@ -97,6 +97,7 @@ const BOARD_CARD_SELECT = {
         take: 10,
         select: {
           status: true,
+          reusedFromVersionId: true,
           assets: { where: { isPrimary: true }, take: 1, select: { id: true, mimeType: true } },
         },
       },
@@ -189,6 +190,8 @@ export interface BoardCard {
   hasOpenExceptionCase: boolean;
   /** At least one line has a customer-uploaded file (OPTIS/Shopify FILE_UPLOAD property) linked via CustomerArtworkAsset. */
   hasCustomerUpload: boolean;
+  /** Customer reordered with a previously approved proof; the Hub auto-approved it for staff to glance at. */
+  hasReusedArtwork: boolean;
   /** At least one line's Shopify property name/value contains a decoration marker ("Printing", "Printed", or "Add-Ons"), or a line's product title contains "printing". */
   hasDecorationLineMarker: boolean;
   /** At least one line's Shopify property name/value contains "Embroidery" — tinted blue instead of the pink hasDecorationLineMarker uses. */
@@ -370,6 +373,14 @@ function toBoardCard(
     hasEmbroideryLineMarker: embroideryLineMarkerOrderIds.has(row.id),
     hasGreenLineMarker: greenLineMarkerOrderIds.has(row.id),
     hasCustomerNote: Boolean(row.noteFromCustomer?.trim()),
+    // The customer reordered with a previously approved proof and the Hub
+    // auto-approved it (reuse-previous-proof.server.ts). Undoing it cancels the
+    // group and its version, so this drops off the card by itself.
+    hasReusedArtwork: row.proofGroups.some(
+      (group) =>
+        group.status !== "CANCELLED" &&
+        group.versions.some((version) => version.reusedFromVersionId !== null),
+    ),
     hasApprovalOrPaymentIssue: !allProofsResolved || row.financialStatus !== "PAID",
     columnKey: getBoardColumnKey(row),
     lines: row.lines.map((line) => ({
