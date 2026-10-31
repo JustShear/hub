@@ -4,7 +4,7 @@ import {useEffect, useState} from 'preact/hooks';
 
 // The Hub's public address - the same value as APP_BASE_URL on Render - with
 // no trailing slash. Set this before deploying the extension.
-const HUB_URL = 'https://REPLACE-WITH-YOUR-HUB-URL';
+const HUB_URL = 'https://hub.justshear.com';
 
 export default async () => {
   render(<ProofsPage />, document.body);

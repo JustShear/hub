@@ -6,6 +6,7 @@ api_version = "2026-10"
 [[extensions]]
 name = "My approved proofs"
 handle = "customer-proofs"
+uid = "450282c3-8d26-71f3-7beb-c9faf96c1d4a7af41765"
 type = "ui_extension"
 
   # A full-page target cannot share an extension with any other target.
