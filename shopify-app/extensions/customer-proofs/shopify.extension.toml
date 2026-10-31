@@ -23,3 +23,8 @@ type = "ui_extension"
   # blocked). Restore the block below afterwards.
   # [extensions.capabilities]
   # network_access = true
+
+  # js-v2-12 diagnostic: Shopify's own starter and its full-page example both
+  # set api_access = true; ours had no capabilities block at all.
+  [extensions.capabilities]
+  api_access = true
