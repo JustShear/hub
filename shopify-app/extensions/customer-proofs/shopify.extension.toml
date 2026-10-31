@@ -11,7 +11,7 @@ type = "ui_extension"
 
   # A full-page target cannot share an extension with any other target.
   [[extensions.targeting]]
-  module = "./src/ProofsPage.jsx"
+  module = "./src/HelloPage.jsx"
   target = "customer-account.page.render"
 
   # Needed to call the Hub (an external server). Shopify must also approve
