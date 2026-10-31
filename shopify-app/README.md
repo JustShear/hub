@@ -52,9 +52,26 @@ On Render, set:
 
 Until `SHOPIFY_CLIENT_ID` is set the endpoints answer 503 and nothing is exposed.
 
-## Things not verified from here
+## Gotchas learned the hard way
 
-The Hub endpoints are tested end to end, but this extension could not be run
-against Shopify from the development machine. Expect to confirm on a real
-preview: the full-page target and `s-page` layout, that Shopify serves images
-from the Hub's origin to the extension, and the network-access approval step.
+- **`extensions/customer-proofs/tsconfig.json` is required.** It tells the bundler
+  to compile JSX with Preact (`"jsxImportSource": "preact"`). Without it, JSX
+  resolves to `react/jsx-runtime`; if a parent folder happens to have React
+  installed (as the Hub's repo root does) the build *succeeds* with the wrong
+  library, and the page renders completely blank with no error anywhere. Do not
+  delete it.
+- **A blank page with no error means debug in the preview, not on the live store.**
+  `shopify app dev` against a free development store, with a throwaway app
+  (`shopify app config link` -> create new app) so the real app is untouched,
+  prints the real build errors. `shopify app deploy` does not.
+- **The App URL in `shopify.app.toml` (`hub.justshear.com`) is a placeholder that
+  doesn't exist.** It only affects opening the app inside Shopify admin; the
+  extension uses `HUB_URL` in `ProofsPage.jsx` instead.
+- **Run Shopify CLI from Command Prompt** on this machine - PowerShell blocks its
+  script wrapper.
+
+## Status
+
+Working in production (confirmed 2026-11-01): a logged-in customer sees their own
+approved proofs, images included, with `network_access` enabled and no extra
+Shopify approval needed.
