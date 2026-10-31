@@ -19,6 +19,14 @@ function json(body: unknown, status: number) {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
+  // React Router sends OPTIONS (the browser's CORS preflight) to the loader,
+  // not the action - and a preflight carries no Authorization header, so it
+  // must be answered before any auth check or the browser blocks the real
+  // request.
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CUSTOMER_ACCOUNT_CORS_HEADERS });
+  }
+
   const config = getCustomerAccountConfig();
   if (!config) {
     return json({ error: "not_configured" }, 503);

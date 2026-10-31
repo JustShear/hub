@@ -196,6 +196,20 @@ describe("customer-account endpoints (integration)", () => {
       expect(await response.json()).toEqual({ proofs: [] });
     });
 
+    it("answers the CORS preflight (no auth header) through the LOADER, as the router does", async () => {
+      const preflight = await proofsLoader({
+        request: new Request("https://hub.test/api/customer-account/proofs", {
+          method: "OPTIONS",
+          headers: { "Access-Control-Request-Headers": "authorization" },
+        }),
+        params: {},
+        context: {},
+      } as LoaderArgs);
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+      expect(preflight.headers.get("Access-Control-Allow-Headers")).toContain("Authorization");
+    });
+
     it("answers the CORS preflight and refuses other methods", async () => {
       const preflight = await proofsAction({
         request: new Request("https://hub.test/api/customer-account/proofs", { method: "OPTIONS" }),
