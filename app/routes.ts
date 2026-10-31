@@ -38,6 +38,15 @@ export default [
     route("dev/orders/:orderId", "routes/dev.orders.$orderId.tsx"),
   ]),
 
+  // Public, token-authorised endpoints behind the customer's "My proofs" page
+  // in their Shopify account - siblings of the layout, not children, so they
+  // never go through the staff login redirect.
+  route("api/customer-account/proofs", "routes/api.customer-account.proofs.tsx"),
+  route(
+    "api/customer-account/proof-image/:assetId",
+    "routes/api.customer-account.proof-image.$assetId.tsx",
+  ),
+
   route("webhooks/orders/created", "routes/webhooks.orders-created.tsx"),
   route("webhooks/orders/updated", "routes/webhooks.orders-updated.tsx"),
   route("webhooks/orders/cancelled", "routes/webhooks.orders-cancelled.tsx"),

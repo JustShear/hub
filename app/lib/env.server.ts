@@ -12,6 +12,15 @@ const envSchema = z.object({
   // API access token. Kept in env (not the Shop DB row) so signature
   // verification never depends on a database round-trip on the fast path.
   SHOPIFY_API_SECRET_KEY: z.string().min(1),
+  // Customer-account "My proofs" page (see docs/development.md "Customer
+  // account proofs"). The Client ID of the Shopify app that owns the
+  // extension - the audience (`aud`) its session tokens are issued for.
+  // Optional: unset means the customer-account endpoints answer 503 and the
+  // rest of the Hub is unaffected. The token's signing secret is
+  // SHOPIFY_API_SECRET_KEY above, unless the extension lives in a different
+  // app, in which case set SHOPIFY_EXTENSION_CLIENT_SECRET to that app's secret.
+  SHOPIFY_CLIENT_ID: z.string().min(1).optional(),
+  SHOPIFY_EXTENSION_CLIENT_SECRET: z.string().min(1).optional(),
 
   R2_ACCOUNT_ID: z.string().min(1),
   R2_ACCESS_KEY_ID: z.string().min(1),

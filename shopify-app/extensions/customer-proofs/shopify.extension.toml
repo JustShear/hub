@@ -1,0 +1,20 @@
+# "My approved proofs" - a full page in the customer's Shopify account.
+# Talks to the Hub's /api/customer-account/proofs endpoint; see
+# docs/development.md "Customer account proofs" and shopify-app/README.md.
+api_version = "2026-10"
+
+[[extensions]]
+name = "My approved proofs"
+handle = "customer-proofs"
+type = "ui_extension"
+
+  # A full-page target cannot share an extension with any other target.
+  [[extensions.targeting]]
+  module = "./src/ProofsPage.jsx"
+  target = "customer-account.page.render"
+
+  # Needed to call the Hub (an external server). Shopify must also approve
+  # network access for the app in the Dev Dashboard before this works in
+  # production.
+  [extensions.capabilities]
+  network_access = true
