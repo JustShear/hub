@@ -14,6 +14,15 @@ const ADD_ONLY_MUTATION = `
   }
 `;
 
+const REMOVE_ONLY_MUTATION = `
+  mutation SyncOrderLifecycleTagRemove($id: ID!, $tagsToRemove: [String!]!) {
+    remove: tagsRemove(id: $id, tags: $tagsToRemove) {
+      node { id }
+      userErrors { field message }
+    }
+  }
+`;
+
 const ADD_AND_REMOVE_MUTATION = `
   mutation SyncOrderLifecycleTag($id: ID!, $tagsToAdd: [String!]!, $tagsToRemove: [String!]!) {
     add: tagsAdd(id: $id, tags: $tagsToAdd) {
@@ -33,14 +42,15 @@ interface TagMutationField {
 }
 
 interface SyncOrderLifecycleTagResponse {
-  add: TagMutationField;
+  add?: TagMutationField;
   remove?: TagMutationField;
 }
 
 export interface SyncOrderLifecycleTagInput {
   shopId: string;
   orderId: string;
-  addTag: string;
+  /** Null means a remove-only sync (then removeTags must not be empty). */
+  addTag: string | null;
   /** May be empty — the tagsRemove leg is skipped entirely when empty. */
   removeTags: string[];
 }
@@ -79,6 +89,9 @@ export async function syncOrderLifecycleTag(
   if (!order) {
     return { outcome: "rejected", reason: "Order not found." };
   }
+  if (input.addTag === null && input.removeTags.length === 0) {
+    return { outcome: "rejected", reason: "Nothing to add or remove." };
+  }
 
   const clientOptions = {
     shopDomain: order.shop.shopifyDomain,
@@ -86,21 +99,27 @@ export async function syncOrderLifecycleTag(
   };
 
   try {
+    const mutation =
+      input.addTag === null
+        ? REMOVE_ONLY_MUTATION
+        : input.removeTags.length > 0
+          ? ADD_AND_REMOVE_MUTATION
+          : ADD_ONLY_MUTATION;
     const data = await shopifyGraphQLRequest<SyncOrderLifecycleTagResponse>(
       clientOptions,
-      input.removeTags.length > 0 ? ADD_AND_REMOVE_MUTATION : ADD_ONLY_MUTATION,
+      mutation,
       {
         id: order.shopifyOrderGid,
-        tagsToAdd: [input.addTag],
+        ...(input.addTag !== null ? { tagsToAdd: [input.addTag] } : {}),
         ...(input.removeTags.length > 0 ? { tagsToRemove: input.removeTags } : {}),
       },
     );
 
-    const addErrors = data.add.userErrors;
+    const addErrors = data.add?.userErrors ?? [];
     const removeErrors = data.remove?.userErrors ?? [];
 
     const nextTags = new Set(order.tags);
-    if (addErrors.length === 0) {
+    if (input.addTag !== null && addErrors.length === 0) {
       nextTags.add(input.addTag);
     }
     if (removeErrors.length === 0) {

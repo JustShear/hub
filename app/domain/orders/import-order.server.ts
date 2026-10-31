@@ -6,6 +6,7 @@ import {
   type ShopifyOrderLine,
 } from "@prisma/client";
 import { db } from "~/lib/db.server";
+import { applyReusedProofsForOrder } from "~/domain/proofs/reuse-previous-proof.server";
 import {
   fetchShopifyOrder,
   type RawShopifyAddress,
@@ -392,6 +393,16 @@ export async function importShopifyOrder(
     },
     { timeout: 15_000 },
   );
+
+  // A customer who reordered with a previously approved proof picked it in the
+  // product options app, which records it as a hidden line property. Turning
+  // that into an already-approved proof group is best-effort and idempotent:
+  // it must never fail (or be retried as a failure of) the order import itself.
+  try {
+    await applyReusedProofsForOrder({ shopId, orderId });
+  } catch (error) {
+    console.error(`Could not apply a reused proof for order ${orderId}`, error);
+  }
 
   return {
     orderId,

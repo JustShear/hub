@@ -562,6 +562,12 @@ model ProofVersion {
   supersededByVersion   ProofVersion? @relation("ProofVersionSupersession", fields: [supersededByVersionId], references: [id])
   supersedesVersion     ProofVersion? @relation("ProofVersionSupersession")
 
+  // Set when this version was created automatically from a customer's earlier
+  // APPROVED proof (they picked it while reordering). Provenance only - never
+  // an FK, so the source proof can't be affected by, or block, anything done
+  // to this copy. Doubles as the idempotency key for re-imports of the order.
+  reusedFromVersionId String?
+
   // Cancellation (Milestone 08) — soft-cancel only, never deleted.
   cancelledAt        DateTime?
   cancelReason       String?
@@ -585,6 +591,7 @@ model ProofVersion {
   requestLinks ProofRequestGroup[]
 
   @@unique([proofGroupId, versionNumber])
+  @@index([reusedFromVersionId])
 }
 
 model ProofAsset {

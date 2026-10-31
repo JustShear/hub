@@ -1,5 +1,8 @@
 {
   "include": ["**/*", "**/.server/**/*", "**/.client/**/*", ".react-router/types/**/*"],
+  // The Shopify extension is its own project (own tsconfig, own Preact JSX
+  // setup) - the Hub's React-JSX compiler options must not be applied to it.
+  "exclude": ["node_modules", "shopify-app"],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "types": ["node", "vite/client"],
