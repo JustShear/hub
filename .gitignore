@@ -4,6 +4,7 @@ Thumbs.db
 .env.local
 *.log
 /node_modules/
+shopify-app/**/node_modules/
 
 # React Router
 /.react-router/

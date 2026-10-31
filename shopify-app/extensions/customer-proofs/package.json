@@ -1,0 +1,12 @@
+{
+  "name": "customer-proofs",
+  "private": true,
+  "version": "1.0.0",
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "@preact/signals": "^2.0.0",
+    "@shopify/ui-extensions": "~2026.10.2",
+    "preact": "^10.29.8"
+  }
+}
