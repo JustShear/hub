@@ -17,6 +17,7 @@ export default defineConfig({
       SHOPIFY_ADMIN_API_TOKEN: "shpat_test",
       SHOPIFY_API_SECRET_KEY: "test_webhook_secret_for_hmac_verification",
       SHOPIFY_CLIENT_ID: "test-extension-client-id",
+      STOREFRONT_API_KEY: "test-storefront-api-key-0123456789abcdef",
       R2_ACCOUNT_ID: "test-account",
       R2_ACCESS_KEY_ID: "test-key-id",
       R2_SECRET_ACCESS_KEY: "test-secret",

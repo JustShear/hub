@@ -12,6 +12,7 @@ import { createProofGroup } from "~/domain/proofs/create-proof-group.server";
 import { updateProofGroup } from "~/domain/proofs/update-proof-group.server";
 import { setProofRequirement } from "~/domain/proofs/set-proof-requirement.server";
 import { cancelProofGroup } from "~/domain/proofs/cancel-proof-group.server";
+import { undoReusedProof } from "~/domain/proofs/reuse-previous-proof.server";
 import {
   linkProofGroupLine,
   unlinkProofGroupLine,
@@ -139,6 +140,22 @@ export async function action({ request, params }: Route.ActionArgs) {
       shopId: staffUser.shopId,
       proofGroupId: formString(formData, "proofGroupId"),
       reason: formString(formData, "reason"),
+      staffUserId: staffUser.id,
+    });
+    if (result.outcome === "rejected") {
+      return { intent, ok: false, error: result.reason };
+    }
+    return { intent, ok: true };
+  }
+
+  if (intent === "undoReusedProof") {
+    // Same permission as cancelling a group: it ends a proof group's life.
+    if (!hasPermission(staffUser, "proof_groups.cancel")) {
+      return { intent, ok: false, error: "You don't have permission to undo a reused proof." };
+    }
+    const result = await undoReusedProof({
+      shopId: staffUser.shopId,
+      proofGroupId: formString(formData, "proofGroupId"),
       staffUserId: staffUser.id,
     });
     if (result.outcome === "rejected") {

@@ -21,6 +21,14 @@ const envSchema = z.object({
   // app, in which case set SHOPIFY_EXTENSION_CLIENT_SECRET to that app's secret.
   SHOPIFY_CLIENT_ID: z.string().min(1).optional(),
   SHOPIFY_EXTENSION_CLIENT_SECRET: z.string().min(1).optional(),
+  // Shared secret the product options app presents (as a bearer token) when it
+  // asks the Hub for a logged-in customer's approved proofs, server to server.
+  // Optional: unset means that endpoint answers 503. Generate a long random
+  // value and set the SAME value on the options app's server.
+  STOREFRONT_API_KEY: z
+    .string()
+    .min(32, "STOREFRONT_API_KEY must be at least 32 characters")
+    .optional(),
 
   R2_ACCOUNT_ID: z.string().min(1),
   R2_ACCESS_KEY_ID: z.string().min(1),

@@ -362,4 +362,70 @@ describe("order proof-groups action route (integration)", () => {
     const version = await db.proofVersion.findUniqueOrThrow({ where: { id: proofVersionId } });
     expect(version.status).toBe("APPROVED");
   });
+
+  describe("undoReusedProof intent", () => {
+    async function createReusedGroup(orderId: string) {
+      const group = await db.proofGroup.create({
+        data: {
+          orderId,
+          name: "Reorder: Left chest",
+          decorationMethod: "EMBROIDERY",
+          status: "APPROVED",
+        },
+      });
+      await db.proofVersion.create({
+        data: {
+          proofGroupId: group.id,
+          versionNumber: 1,
+          status: "APPROVED",
+          createdByStaffId: "system:reorder",
+          reusedFromVersionId: "an-earlier-version",
+        },
+      });
+      return group;
+    }
+
+    function undoRequest(orderId: string, groupId: string, cookie: string) {
+      const formData = new FormData();
+      formData.set("_intent", "undoReusedProof");
+      formData.set("proofGroupId", groupId);
+      return {
+        request: new Request(`http://localhost/orders/${orderId}/proof-groups`, {
+          method: "POST",
+          headers: { Cookie: cookie },
+          body: formData,
+        }),
+        params: { orderId },
+        context: {},
+      } as never;
+    }
+
+    it("lets a Manager undo a reused proof, cancelling only that group", async () => {
+      const order = await tracker.createOrder();
+      const group = await createReusedGroup(order.id);
+      const manager = await createStaffUserWithRole("MANAGER");
+
+      const result = await action(
+        undoRequest(order.id, group.id, await sessionCookieFor(manager.id)),
+      );
+
+      expect(result).toMatchObject({ ok: true });
+      const after = await db.proofGroup.findUniqueOrThrow({ where: { id: group.id } });
+      expect(after.status).toBe("CANCELLED");
+    });
+
+    it("refuses staff without proof_groups.cancel, leaving the group approved", async () => {
+      const order = await tracker.createOrder();
+      const group = await createReusedGroup(order.id);
+      const printStaff = await createStaffUserWithRole("PRINT_STAFF");
+
+      const result = await action(
+        undoRequest(order.id, group.id, await sessionCookieFor(printStaff.id)),
+      );
+
+      expect(result).toMatchObject({ ok: false });
+      const after = await db.proofGroup.findUniqueOrThrow({ where: { id: group.id } });
+      expect(after.status).toBe("APPROVED");
+    });
+  });
 });

@@ -68,6 +68,8 @@ export interface OrderDetailProofVersion {
   cancelledAt: string | null;
   cancelReason: string | null;
   supersededByVersionId: string | null;
+  /** Set when the Hub auto-approved this version from the customer's earlier proof (a reorder). */
+  reusedFrom: { orderId: string; orderNumber: string } | null;
   assets: OrderDetailProofVersionAsset[];
   sourceAssetIds: string[];
   notes: OrderDetailProofNote[];
@@ -125,6 +127,31 @@ export async function loadProofGroupsForOrder(params: {
   });
 
   if (groups.length === 0) return [];
+
+  // Where each reused version came from, for the "Reused from #38218" note.
+  const reusedFromIds = [
+    ...new Set(
+      groups.flatMap((g) =>
+        g.versions.map((v) => v.reusedFromVersionId).filter((id): id is string => id !== null),
+      ),
+    ),
+  ];
+  const reusedSources =
+    reusedFromIds.length === 0
+      ? []
+      : await db.proofVersion.findMany({
+          where: { id: { in: reusedFromIds } },
+          select: {
+            id: true,
+            proofGroup: { select: { order: { select: { id: true, orderNumber: true } } } },
+          },
+        });
+  const reusedSourceById = new Map(
+    reusedSources.map((v) => [
+      v.id,
+      { orderId: v.proofGroup.order.id, orderNumber: v.proofGroup.order.orderNumber },
+    ]),
+  );
 
   const failures = await db.integrationFailure.findMany({
     where: { relatedProofGroupId: { in: groups.map((g) => g.id) }, status: { in: OPEN_STATUSES } },
@@ -215,11 +242,18 @@ export async function loadProofGroupsForOrder(params: {
         status: version.status,
         internalNote: version.internalNote,
         createdByStaffId: version.createdByStaffId,
-        createdByStaffName: staffNames.get(version.createdByStaffId) ?? "Unknown staff member",
+        createdByStaffName:
+          staffNames.get(version.createdByStaffId) ??
+          (version.createdByStaffId.startsWith("system:")
+            ? "Automatic (reorder)"
+            : "Unknown staff member"),
         createdAt: version.createdAt.toISOString(),
         cancelledAt: version.cancelledAt?.toISOString() ?? null,
         cancelReason: version.cancelReason,
         supersededByVersionId: version.supersededByVersionId,
+        reusedFrom: version.reusedFromVersionId
+          ? (reusedSourceById.get(version.reusedFromVersionId) ?? null)
+          : null,
         assets: version.assets.map((asset) => ({
           id: asset.id,
           storageKey: asset.storageKey,

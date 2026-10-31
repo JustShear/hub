@@ -41,6 +41,7 @@ export default [
   // Public, token-authorised endpoints behind the customer's "My proofs" page
   // in their Shopify account - siblings of the layout, not children, so they
   // never go through the staff login redirect.
+  route("api/storefront/customer-proofs", "routes/api.storefront.customer-proofs.tsx"),
   route("api/customer-account/proofs", "routes/api.customer-account.proofs.tsx"),
   route(
     "api/customer-account/proof-image/:assetId",

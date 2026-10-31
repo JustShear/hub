@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useFetcher } from "react-router";
+import { Link, useFetcher } from "react-router";
 import { AlertTriangle, ChevronDown, ChevronRight, File as FileIcon } from "lucide-react";
 import { Badge, type BadgeTone } from "~/components/shared/Badge";
 import { PriorityBadge } from "~/components/board/CardBadges";
@@ -68,6 +68,8 @@ export function ProofGroupCard({
     group.status === "NOT_STARTED" ||
     group.status === "DRAFT_IN_PROGRESS" ||
     group.status === "READY_TO_SEND";
+  // Auto-approved from the customer's earlier proof when they reordered.
+  const reusedFrom = group.versions.find((v) => v.reusedFrom)?.reusedFrom ?? null;
   const linkedAssetIds = new Set(group.assets.map((a) => a.assetId));
   const linkedLineIds = new Set(group.orderLines.map((l) => l.orderLineId));
   const unlinkedLines = availableLines.filter((l) => !linkedLineIds.has(l.id));
@@ -93,6 +95,7 @@ export function ProofGroupCard({
           {PROOF_GROUP_STATUS_LABELS[group.status]}
         </Badge>
         <Badge tone="neutral">{DECORATION_METHOD_LABELS[group.decorationMethod]}</Badge>
+        {reusedFrom ? <Badge tone="success">Reorder: reused artwork</Badge> : null}
         {group.placement ? <span className="text-xs text-muted">{group.placement}</span> : null}
         <PriorityBadge priority={group.priority} />
         {isActive && !group.readiness.ready ? (
@@ -113,6 +116,16 @@ export function ProofGroupCard({
           <span>Updated {formatAuDateTime(group.updatedAt)}</span>
         </span>
       </button>
+
+      {reusedFrom && group.status === "APPROVED" ? (
+        <ReusedProofNotice
+          actionUrl={actionUrl}
+          proofGroupId={group.id}
+          sourceOrderId={reusedFrom.orderId}
+          sourceOrderNumber={reusedFrom.orderNumber}
+          canUndo={canCancel}
+        />
+      ) : null}
 
       {expanded ? (
         <div className="flex flex-col gap-4 border-t border-border p-3">
@@ -594,6 +607,58 @@ function CancelGroupSection({
           Back
         </button>
       </div>
+      {response && !response.ok ? (
+        <p role="alert" className="text-xs text-error">
+          {response.error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// The customer picked this artwork from an earlier order while reordering, and
+// the Hub approved it automatically. Staff can see where it came from and, if
+// the artwork needs a fresh look, undo it in one click: that cancels only this
+// copy and puts the order back to needing a proof.
+function ReusedProofNotice({
+  actionUrl,
+  proofGroupId,
+  sourceOrderId,
+  sourceOrderNumber,
+  canUndo,
+}: {
+  actionUrl: string;
+  proofGroupId: string;
+  sourceOrderId: string;
+  sourceOrderNumber: string;
+  canUndo: boolean;
+}) {
+  const fetcher = useFetcher<GenericActionResponse>();
+  const response = fetcher.data;
+  return (
+    <div className="mx-3 mb-3 flex flex-col gap-1 rounded border border-success/40 bg-success/5 p-2">
+      <p className="text-xs text-ink">
+        The customer reused their approved artwork from{" "}
+        <Link to={`/orders/${sourceOrderId}`} className="font-semibold underline">
+          {sourceOrderNumber}
+        </Link>
+        , so this was approved automatically. Have a quick look before production.
+      </p>
+      {canUndo ? (
+        <button
+          type="button"
+          disabled={fetcher.state !== "idle"}
+          onClick={() => {
+            const formData = new FormData();
+            formData.set("_intent", "undoReusedProof");
+            formData.set("proofGroupId", proofGroupId);
+            void fetcher.submit(formData, { method: "post", action: actionUrl });
+          }}
+          className="self-start rounded-md border border-border bg-surface px-2.5 py-1 text-xs text-ink hover:bg-page disabled:opacity-50"
+        >
+          {fetcher.state === "idle" ? "Undo — this order needs a new proof" : "Undoing…"}
+        </button>
+      ) : null}
       {response && !response.ok ? (
         <p role="alert" className="text-xs text-error">
           {response.error}
