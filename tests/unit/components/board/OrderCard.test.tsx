@@ -16,6 +16,7 @@ function makeCard(overrides: Partial<BoardCard> = {}): BoardCard {
     id: "order_1",
     orderNumber: "#1001",
     customerName: "Jordan Smith",
+    customerOrderCount: null,
     customerEmail: "jordan@example.com",
     shopifyCreatedAt: "2026-01-01T00:00:00.000Z",
     workflowStatus: OrderStatus.NEW,
@@ -502,5 +503,25 @@ describe("OrderCard", () => {
     );
     expect(screen.getByText(/Freight label created.*TRACK123/)).toBeInTheDocument();
     expect(screen.queryByText("Weight (kg)")).not.toBeInTheDocument();
+  });
+
+  describe("customer order count", () => {
+    it("shows how many orders the customer has placed", () => {
+      renderCard(
+        makeCard({ orderNumber: "#2001", customerName: "Pat", customerOrderCount: 5 }),
+        true,
+      );
+      expect(screen.getByText(/· 5 orders/)).toBeInTheDocument();
+    });
+
+    it("uses the singular for a first order", () => {
+      renderCard(makeCard({ orderNumber: "#2002", customerOrderCount: 1 }), true);
+      expect(screen.getByText(/· 1 order$/)).toBeInTheDocument();
+    });
+
+    it("shows nothing when the count isn't known (guest checkout, or not synced yet)", () => {
+      renderCard(makeCard({ orderNumber: "#2003", customerOrderCount: null }), true);
+      expect(screen.queryByText(/ orders?$/)).not.toBeInTheDocument();
+    });
   });
 });

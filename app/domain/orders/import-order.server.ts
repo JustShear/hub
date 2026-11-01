@@ -35,6 +35,14 @@ export interface ImportShopifyOrderResult {
   changeDescriptions: string[];
 }
 
+// Shopify's UnsignedInt64 scalar is serialised as a string. Anything that isn't a
+// sane non-negative whole number is treated as unknown rather than guessed at.
+export function parseOrderCount(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
 function toDecimal(amount: string | undefined): Prisma.Decimal | null {
   return amount ? new Prisma.Decimal(amount) : null;
 }
@@ -176,6 +184,7 @@ export async function importShopifyOrder(
     customerEmail: rawOrder.customer?.email ?? null,
     customerName: rawOrder.customer?.displayName ?? null,
     customerPhone: rawOrder.customer?.phone ?? null,
+    customerOrderCount: parseOrderCount(rawOrder.customer?.numberOfOrders),
     noteFromCustomer: rawOrder.note,
     tags: rawOrder.tags,
     financialStatus: rawOrder.displayFinancialStatus,

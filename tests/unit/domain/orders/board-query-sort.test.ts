@@ -7,6 +7,7 @@ function makeCard(overrides: Partial<BoardCard>): BoardCard {
     id: overrides.id ?? "id",
     orderNumber: "#1000",
     customerName: "Test Customer",
+    customerOrderCount: null,
     customerEmail: "test@example.com",
     shopifyCreatedAt: "2026-01-01T00:00:00.000Z",
     workflowStatus: OrderStatus.NEW,

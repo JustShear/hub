@@ -32,6 +32,7 @@ const ORDER_QUERY = /* GraphQL */ `
         email
         phone
         displayName
+        numberOfOrders
       }
       shippingAddress {
         name
@@ -258,7 +259,14 @@ export interface RawShopifyOrder {
   displayFulfillmentStatus: string | null;
   tags: string[];
   note: string | null;
-  customer: { id: string; email: string | null; phone: string | null; displayName: string } | null;
+  customer: {
+    id: string;
+    email: string | null;
+    phone: string | null;
+    displayName: string;
+    /** UnsignedInt64 - arrives as a string in JSON. Optional so older fixtures/payloads still parse. */
+    numberOfOrders?: string | number | null;
+  } | null;
   shippingAddress: RawShopifyAddress | null;
   billingAddress: RawShopifyAddress | null;
   shippingLine: { title: string } | null;

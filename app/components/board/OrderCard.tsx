@@ -158,7 +158,14 @@ function OrderCardImpl({
         disabled={!canManage || isPending}
       />
 
-      <p className="text-ink">{card.customerName ?? "No customer name"}</p>
+      <p className="text-ink">
+        {card.customerName ?? "No customer name"}
+        {card.customerOrderCount !== null ? (
+          <span className="ml-1.5 text-xs text-muted">
+            · {card.customerOrderCount} order{card.customerOrderCount === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </p>
 
       <p className="text-xs text-muted">
         Ordered {formatAuDate(card.shopifyCreatedAt)} · {card.daysInState} day

@@ -8,7 +8,7 @@ vi.mock("~/adapters/shopify/orders.server", () => ({
 }));
 
 const { fetchShopifyOrder } = await import("~/adapters/shopify/orders.server");
-const { importShopifyOrder, OrderNotFoundError } =
+const { importShopifyOrder, OrderNotFoundError, parseOrderCount } =
   await import("~/domain/orders/import-order.server");
 
 function buildRawOrder(overrides: Partial<RawShopifyOrder> = {}): RawShopifyOrder {
@@ -680,5 +680,63 @@ describe("importShopifyOrder (integration)", () => {
     const result = await importShopifyOrder(shop.id, raw.id);
 
     expect(result.wasExportedForPrintJustNow).toBe(false);
+  });
+
+  it("parseOrderCount accepts Shopify's string-encoded count and treats anything odd as unknown", () => {
+    expect(parseOrderCount("7")).toBe(7);
+    expect(parseOrderCount(0)).toBe(0);
+    expect(parseOrderCount(12)).toBe(12);
+    for (const bad of [
+      null,
+      undefined,
+      "",
+      "abc",
+      "-1",
+      "1.5",
+      "99999999999999999999",
+      -3,
+      Number.NaN,
+    ]) {
+      expect(parseOrderCount(bad as never)).toBeNull();
+    }
+  });
+
+  it("stores the customer's lifetime order count, refreshes it on every sync, and leaves it null for a guest", async () => {
+    const shop = await getShop();
+    const customer = {
+      id: "gid://shopify/Customer/77",
+      email: "repeat@example.com",
+      phone: null,
+      displayName: "Repeat Customer",
+      numberOfOrders: "7",
+    };
+    const raw = buildRawOrder({ customer });
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(raw);
+    const created = await importShopifyOrder(shop.id, raw.id);
+    createdOrderIds.push(created.orderId);
+    expect(
+      (await db.shopifyOrder.findUniqueOrThrow({ where: { id: created.orderId } }))
+        .customerOrderCount,
+    ).toBe(7);
+
+    // Shopify-owned: a later sync (their next order) overwrites it.
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(
+      buildRawOrder({ id: raw.id, customer: { ...customer, numberOfOrders: "8" } }),
+    );
+    await importShopifyOrder(shop.id, raw.id);
+    expect(
+      (await db.shopifyOrder.findUniqueOrThrow({ where: { id: created.orderId } }))
+        .customerOrderCount,
+    ).toBe(8);
+
+    // Guest checkout / a payload without the field: unknown, not zero.
+    const guest = buildRawOrder({ customer: null });
+    vi.mocked(fetchShopifyOrder).mockResolvedValue(guest);
+    const guestResult = await importShopifyOrder(shop.id, guest.id);
+    createdOrderIds.push(guestResult.orderId);
+    expect(
+      (await db.shopifyOrder.findUniqueOrThrow({ where: { id: guestResult.orderId } }))
+        .customerOrderCount,
+    ).toBeNull();
   });
 });

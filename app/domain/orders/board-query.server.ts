@@ -60,6 +60,7 @@ const BOARD_CARD_SELECT = {
   orderNumber: true,
   customerName: true,
   customerEmail: true,
+  customerOrderCount: true,
   shopifyCreatedAt: true,
   workflowStatus: true,
   workflowStatusChangedAt: true,
@@ -156,6 +157,8 @@ export interface BoardCard {
   orderNumber: string;
   customerName: string | null;
   customerEmail: string | null;
+  /** The customer's lifetime order count in Shopify (null = guest, or not synced yet). */
+  customerOrderCount: number | null;
   shopifyCreatedAt: string;
   workflowStatus: OrderStatus;
   workflowStatusChangedAt: string;
@@ -343,6 +346,7 @@ function toBoardCard(
     orderNumber: row.orderNumber,
     customerName: row.customerName,
     customerEmail: row.customerEmail,
+    customerOrderCount: row.customerOrderCount,
     shopifyCreatedAt: row.shopifyCreatedAt.toISOString(),
     workflowStatus: row.workflowStatus,
     workflowStatusChangedAt: row.workflowStatusChangedAt.toISOString(),

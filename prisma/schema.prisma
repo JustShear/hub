@@ -196,6 +196,10 @@ model ShopifyOrder {
   customerEmail      String?
   customerName       String?
   customerPhone      String?
+  // The customer's lifetime order count in Shopify (Customer.numberOfOrders) as of
+  // this order's last sync. Shopify-owned, shown on the board tile. Null for guest
+  // checkouts, or until the order's next sync.
+  customerOrderCount Int?
   noteFromCustomer   String? // Shopify's buyer-supplied order note
   tags               String[]
   financialStatus    String?

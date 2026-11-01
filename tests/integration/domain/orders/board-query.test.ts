@@ -14,6 +14,19 @@ import { db } from "~/lib/db.server";
 import { loadBoardColumns } from "~/domain/orders/board-query.server";
 import { EMPTY_BOARD_FILTERS } from "~/domain/orders/board-filters";
 
+// Every order this file creates is numbered "#board-test-<uuid>". Searching for that
+// prefix makes each test look only at its own orders. Without it, orders that OTHER
+// test files create at the same moment (all in the same shared database, mostly in
+// the New column) can fill the board's 40-cards-per-column cap and push a test's own
+// card out of view - failing it for a reason that has nothing to do with what it
+// checks. A test that supplies its own search term keeps it.
+function loadBoard(params: Parameters<typeof loadBoardColumns>[0]) {
+  return loadBoardColumns({
+    ...params,
+    filters: { ...params.filters, search: params.filters.search || "#board-test-" },
+  });
+}
+
 describe("loadBoardColumns (integration)", () => {
   const createdOrderIds: string[] = [];
   const createdStaffUserIds: string[] = [];
@@ -120,7 +133,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -180,7 +193,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -213,7 +226,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(order.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -253,7 +266,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(normalOrder.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: { ...EMPTY_BOARD_FILTERS, priority: ["URGENT"] },
       sort: { field: "urgency_default" },
@@ -282,7 +295,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(order.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: { ...EMPTY_BOARD_FILTERS, search: uniqueMarker },
       sort: { field: "urgency_default" },
@@ -308,7 +321,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(order.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -350,7 +363,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -420,7 +433,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(plainOrder.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -475,7 +488,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(plainOrder.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -516,7 +529,7 @@ describe("loadBoardColumns (integration)", () => {
       data: { orderLineId: line.id, name: "_bssIntegrate", value: "true" },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -556,7 +569,7 @@ describe("loadBoardColumns (integration)", () => {
       data: { orderLineId: line.id, name: "Add-Ons", value: "Gift wrap" },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -614,7 +627,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -653,7 +666,7 @@ describe("loadBoardColumns (integration)", () => {
       data: { orderLineId: embroideredLine.id, name: "Embroidery text", value: "JS" },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -694,7 +707,7 @@ describe("loadBoardColumns (integration)", () => {
       data: { orderLineId: line.id, name: "Tail Name", value: "Rex" },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -732,7 +745,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -770,7 +783,7 @@ describe("loadBoardColumns (integration)", () => {
       data: { orderLineId: line.id, name: "Custom Name", value: "Bella" },
     });
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -827,7 +840,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(plainOrder.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -871,7 +884,7 @@ describe("loadBoardColumns (integration)", () => {
     });
     createdOrderIds.push(paidOrder.id);
 
-    const result = await loadBoardColumns({
+    const result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -908,7 +921,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
 
-    let result = await loadBoardColumns({
+    let result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -919,7 +932,7 @@ describe("loadBoardColumns (integration)", () => {
 
     await db.proofGroup.update({ where: { id: proofGroup.id }, data: { status: "APPROVED" } });
 
-    result = await loadBoardColumns({
+    result = await loadBoard({
       shopId: shop.id,
       filters: EMPTY_BOARD_FILTERS,
       sort: { field: "urgency_default" },
@@ -966,7 +979,7 @@ describe("loadBoardColumns (integration)", () => {
       },
     });
     const load = async () => {
-      const result = await loadBoardColumns({
+      const result = await loadBoard({
         shopId: shop.id,
         filters: EMPTY_BOARD_FILTERS,
         sort: { field: "urgency_default" },
@@ -984,5 +997,37 @@ describe("loadBoardColumns (integration)", () => {
     await db.proofGroup.update({ where: { id: group.id }, data: { status: "CANCELLED" } });
     cards = await load();
     expect(cards.find((c) => c.id === reusedOrder.id)?.hasReusedArtwork).toBe(false);
+  });
+
+  it("carries the customer's lifetime order count onto the card, and null when unknown", async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const make = async (customerOrderCount: number | null) => {
+      const order = await db.shopifyOrder.create({
+        data: {
+          shopId: shop.id,
+          shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+          orderNumber: `#board-test-${randomUUID()}`,
+          shopifyCreatedAt: new Date(),
+          tags: [],
+          rawPayload: {},
+          workflowStatus: OrderStatus.NEW,
+          customerOrderCount,
+        },
+      });
+      createdOrderIds.push(order.id);
+      return order;
+    };
+    const repeat = await make(4);
+    const unknown = await make(null);
+
+    const result = await loadBoard({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+    const cards = result.columns.flatMap((c) => c.cards);
+    expect(cards.find((c) => c.id === repeat.id)?.customerOrderCount).toBe(4);
+    expect(cards.find((c) => c.id === unknown.id)?.customerOrderCount).toBeNull();
   });
 });
