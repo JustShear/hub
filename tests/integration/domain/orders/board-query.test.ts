@@ -1030,4 +1030,57 @@ describe("loadBoardColumns (integration)", () => {
     expect(cards.find((c) => c.id === repeat.id)?.customerOrderCount).toBe(4);
     expect(cards.find((c) => c.id === unknown.id)?.customerOrderCount).toBeNull();
   });
+
+  it('reports hasDecorationLineMarker for an order whose options summary names the "Customize" option set, and not for a plain order', async () => {
+    const shop = await db.shop.findFirstOrThrow();
+    const make = async (properties: { name: string; value: string }[]) => {
+      const order = await db.shopifyOrder.create({
+        data: {
+          shopId: shop.id,
+          shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+          orderNumber: `#board-test-${randomUUID()}`,
+          shopifyCreatedAt: new Date(),
+          tags: [],
+          rawPayload: {},
+          workflowStatus: OrderStatus.NEW,
+        },
+      });
+      createdOrderIds.push(order.id);
+      await db.shopifyOrderLine.create({
+        data: {
+          orderId: order.id,
+          shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+          productTitle: "Full Zip Collared Long Tail Jumper",
+          quantity: 1,
+          properties: { create: properties },
+        },
+      });
+      return order;
+    };
+
+    // What the options app really writes: a hidden summary property.
+    const customized = await make([
+      {
+        name: "_options_summary",
+        value: "Option set~:~Customize~|~Add-Ons~:~Tail name",
+      },
+    ]);
+    // Lower-case, in a plain property name.
+    const lowerCase = await make([{ name: "customize", value: "yes" }]);
+    // Similar-looking but different words must NOT match.
+    const customisation = await make([{ name: "Customization", value: "none" }]);
+    const plain = await make([{ name: "Size", value: "L" }]);
+
+    const result = await loadBoard({
+      shopId: shop.id,
+      filters: EMPTY_BOARD_FILTERS,
+      sort: { field: "urgency_default" },
+      currentStaffUserId: "irrelevant",
+    });
+    const cards = result.columns.flatMap((c) => c.cards);
+    expect(cards.find((c) => c.id === customized.id)?.hasDecorationLineMarker).toBe(true);
+    expect(cards.find((c) => c.id === lowerCase.id)?.hasDecorationLineMarker).toBe(true);
+    expect(cards.find((c) => c.id === customisation.id)?.hasDecorationLineMarker).toBe(false);
+    expect(cards.find((c) => c.id === plain.id)?.hasDecorationLineMarker).toBe(false);
+  });
 });

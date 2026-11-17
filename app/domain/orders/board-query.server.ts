@@ -572,7 +572,11 @@ async function loadOrderIdsWithCustomerUpload(orderIds: string[]): Promise<Set<s
 // the shop found it was tinting orders pink that had no actual printing
 // involved. Embroidery is deliberately excluded here too — it gets its own
 // blue tint below instead of the pink one these markers drive.
-const DECORATION_LINE_MARKERS = ["Printing", "Printed", "Add-Ons"];
+// "Customize" is the name of the product-options set (the options app writes
+// "Option set: Customize" into the line's hidden _options_summary property
+// whenever a customer picks anything from it), so it rides in a line property
+// value like "Add-Ons" does - not in the product title.
+const DECORATION_LINE_MARKERS = ["Printing", "Printed", "Add-Ons", "Customize"];
 
 // Same substring/case-insensitivity rules as DECORATION_LINE_MARKERS, but its
 // own array/tint so an embroidery line reads as light blue on the board
