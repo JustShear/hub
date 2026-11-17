@@ -30,6 +30,7 @@ import {
   type BoardFilters,
   type BoardSort,
   type SortField,
+  type TintFilter,
 } from "~/domain/orders/board-filters";
 
 // Bounds how much the board ever loads in one round trip — see
@@ -737,6 +738,70 @@ const ORDER_AGE_DAYS: Record<string, number> = {
   over_30_days: 30,
 };
 
+// ---- Tile-colour filter -------------------------------------------------
+// The colour of a tile is worked out in OrderCard.tsx (tintClassName), from flags
+// computed in toBoardCard(). The board filter has to select the SAME orders in the
+// database, across every column and every "load more" page, so the rules are
+// restated here as Prisma conditions built from the same marker lists:
+//   1. a manual colour choice on the card always wins (PINK -> pink; BLUE or NONE
+//      -> neither pink nor green);
+//   2. otherwise embroidery makes it blue, so it is neither;
+//   3. otherwise a green marker makes it green;
+//   4. otherwise a customer upload or a decoration marker makes it pink.
+function lineHasPropertyMarker(markers: string[]): Prisma.ShopifyOrderWhereInput {
+  return {
+    lines: {
+      some: {
+        properties: {
+          some: {
+            OR: markers.flatMap((marker) => [
+              { name: { contains: marker, mode: "insensitive" as const } },
+              { value: { contains: marker, mode: "insensitive" as const } },
+            ]),
+          },
+        },
+      },
+    },
+  };
+}
+
+function lineHasTitleMarker(markers: string[]): Prisma.ShopifyOrderWhereInput {
+  return {
+    lines: {
+      some: {
+        OR: markers.flatMap((marker) => [
+          { productTitle: { contains: marker, mode: "insensitive" as const } },
+          { variantTitle: { contains: marker, mode: "insensitive" as const } },
+        ]),
+      },
+    },
+  };
+}
+
+function tintWhere(tint: TintFilter): Prisma.ShopifyOrderWhereInput {
+  const embroidery = lineHasPropertyMarker(EMBROIDERY_LINE_MARKERS);
+  const green: Prisma.ShopifyOrderWhereInput = {
+    OR: [lineHasPropertyMarker(GREEN_LINE_MARKERS), lineHasTitleMarker(GREEN_LINE_MARKERS)],
+  };
+  const pinkSignal: Prisma.ShopifyOrderWhereInput = {
+    OR: [
+      { lines: { some: { artworkLinks: { some: {} } } } },
+      lineHasPropertyMarker(DECORATION_LINE_MARKERS),
+      lineHasTitleMarker(PINK_PRODUCT_TITLE_MARKERS),
+    ],
+  };
+
+  if (tint === "green") {
+    return { AND: [{ cardTintOverride: null }, { NOT: embroidery }, green] };
+  }
+  return {
+    OR: [
+      { cardTintOverride: "PINK" },
+      { AND: [{ cardTintOverride: null }, { NOT: embroidery }, { NOT: green }, pinkSignal] },
+    ],
+  };
+}
+
 export function buildBoardWhere(
   shopId: string,
   filters: BoardFilters,
@@ -747,6 +812,7 @@ export function buildBoardWhere(
 
   if (filters.priority.length > 0) and.push({ priority: { in: filters.priority } });
   if (filters.tags.length > 0) and.push({ tags: { hasSome: filters.tags } });
+  if (filters.tints.length > 0) and.push({ OR: filters.tints.map(tintWhere) });
   if (filters.preorder !== undefined) and.push({ isPreorder: filters.preorder });
   if (filters.noProofRequired) and.push({ proofSummary: OrderProofSummary.NO_PROOFS_REQUIRED });
   if (filters.customerResponse) and.push({ proofSummary: OrderProofSummary.CHANGES_REQUESTED });

@@ -35,6 +35,16 @@ export const SORT_FIELD_LABELS: Record<SortField, string> = {
 export const BOARD_VIEWS = ["board", "on_hold", "cancelled", "archived", "fulfilled"] as const;
 export type BoardView = (typeof BOARD_VIEWS)[number];
 
+// Tile colours a staff member can filter the board by. These mirror the colour
+// rules in OrderCard.tsx's tintClassName(); the matching database conditions
+// live in board-query.server.ts (tintWhere) and must be kept in step with it.
+export const TINT_FILTERS = ["pink", "green"] as const;
+export type TintFilter = (typeof TINT_FILTERS)[number];
+export const TINT_FILTER_LABELS: Record<TintFilter, string> = {
+  pink: "Pink (printing)",
+  green: "Green (tail names)",
+};
+
 export const ASSIGNMENT_FILTERS = ["any", "me", "unassigned", "staff"] as const;
 export type AssignmentFilterType = (typeof ASSIGNMENT_FILTERS)[number];
 
@@ -45,6 +55,7 @@ export const boardFiltersSchema = z.object({
   priority: z.array(z.enum(PRIORITY_VALUES)).default([]),
   dueDateStates: z.array(z.enum(DUE_DATE_STATES)).default([]),
   tags: z.array(z.string().min(1)).default([]),
+  tints: z.array(z.enum(TINT_FILTERS)).default([]),
   preorder: z.boolean().optional(),
   noProofRequired: z.boolean().optional(),
   waitingOnCustomer: z.boolean().optional(),
@@ -136,6 +147,10 @@ export function parseBoardSearchParams(searchParams: URLSearchParams): {
     priority: parseListParam(searchParams.get("priority")),
     dueDateStates: parseListParam(searchParams.get("due")),
     tags: parseListParam(searchParams.get("tags")),
+    // An unknown colour in a hand-edited URL is ignored rather than rejected.
+    tints: parseListParam(searchParams.get("tint")).filter((v): v is TintFilter =>
+      (TINT_FILTERS as readonly string[]).includes(v),
+    ),
     preorder: parseBooleanParam(searchParams.get("preorder")),
     noProofRequired: parseBooleanParam(searchParams.get("noProof")),
     waitingOnCustomer: parseBooleanParam(searchParams.get("waiting")),
@@ -172,6 +187,7 @@ export function boardFiltersToSearchParams(
   if (filters.priority.length) params.set("priority", filters.priority.join(","));
   if (filters.dueDateStates.length) params.set("due", filters.dueDateStates.join(","));
   if (filters.tags.length) params.set("tags", filters.tags.join(","));
+  if (filters.tints.length) params.set("tint", filters.tints.join(","));
   if (filters.preorder) params.set("preorder", "1");
   if (filters.noProofRequired) params.set("noProof", "1");
   if (filters.waitingOnCustomer) params.set("waiting", "1");
@@ -198,6 +214,7 @@ export function isBoardFiltersEmpty(filters: BoardFilters): boolean {
     filters.priority.length === 0 &&
     filters.dueDateStates.length === 0 &&
     filters.tags.length === 0 &&
+    filters.tints.length === 0 &&
     !filters.preorder &&
     !filters.noProofRequired &&
     !filters.waitingOnCustomer &&

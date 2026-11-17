@@ -90,3 +90,26 @@ describe("usesCursorPagination", () => {
     expect(usesCursorPagination("order_number")).toBe(true);
   });
 });
+
+describe("tile colour filter", () => {
+  it("parses the tint param, ignoring unknown colours instead of throwing", () => {
+    const { filters } = parseBoardSearchParams(new URLSearchParams("tint=pink,purple,green"));
+    expect(filters.tints).toEqual(["pink", "green"]);
+    expect(parseBoardSearchParams(new URLSearchParams("tint=nope")).filters.tints).toEqual([]);
+    expect(parseBoardSearchParams(new URLSearchParams()).filters.tints).toEqual([]);
+  });
+
+  it("round-trips through the URL, and only writes the param when a colour is chosen", () => {
+    const { filters, sort, view } = parseBoardSearchParams(new URLSearchParams("tint=green"));
+    const params = boardFiltersToSearchParams(filters, sort, view);
+    expect(params.get("tint")).toBe("green");
+
+    const { filters: none, sort: s2, view: v2 } = parseBoardSearchParams(new URLSearchParams());
+    expect(boardFiltersToSearchParams(none, s2, v2).has("tint")).toBe(false);
+  });
+
+  it("counts a chosen colour as an active filter", () => {
+    const { filters } = parseBoardSearchParams(new URLSearchParams("tint=pink"));
+    expect(isBoardFiltersEmpty(filters)).toBe(false);
+  });
+});

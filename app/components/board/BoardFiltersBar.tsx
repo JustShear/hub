@@ -4,6 +4,8 @@ import {
   DUE_DATE_STATES,
   ORDER_AGE_BUCKETS,
   PRIORITY_VALUES,
+  TINT_FILTERS,
+  TINT_FILTER_LABELS,
   boardFiltersToSearchParams,
   isBoardFiltersEmpty,
   type BoardFilters,
@@ -12,6 +14,7 @@ import {
   type DueDateStateFilter,
   type OrderAgeBucket,
   type PriorityFilterValue,
+  type TintFilter,
 } from "~/domain/orders/board-filters";
 import type { BoardFilterOptions } from "~/domain/orders/board-query.server";
 import { DUE_DATE_STATE_LABELS, PRIORITY_LABELS } from "~/domain/orders/labels";
@@ -64,6 +67,13 @@ export function BoardFiltersBar({
     apply({ ...filters, dueDateStates: list });
   }
 
+  function toggleTint(value: TintFilter) {
+    const list = filters.tints.includes(value)
+      ? filters.tints.filter((v) => v !== value)
+      : [...filters.tints, value];
+    apply({ ...filters, tints: list });
+  }
+
   function toggleTag(tag: string) {
     const list = filters.tags.includes(tag)
       ? filters.tags.filter((t) => t !== tag)
@@ -76,6 +86,7 @@ export function BoardFiltersBar({
       priority: [],
       dueDateStates: [],
       tags: [],
+      tints: [],
       orderAge: "any",
       assignment: "any",
       search: filters.search,
@@ -93,6 +104,12 @@ export function BoardFiltersBar({
       label: DUE_DATE_STATE_LABELS[d],
       onRemove: () => {
         toggleDueDateState(d);
+      },
+    })),
+    ...filters.tints.map((t) => ({
+      label: `Colour: ${TINT_FILTER_LABELS[t]}`,
+      onRemove: () => {
+        toggleTint(t);
       },
     })),
     ...filters.tags.map((t) => ({
@@ -219,6 +236,29 @@ export function BoardFiltersBar({
               }`}
             >
               {DUE_DATE_STATE_LABELS[value]}
+            </button>
+          ))}
+        </fieldset>
+
+        <fieldset className="flex items-center gap-1.5">
+          <legend className="sr-only">Tile colour</legend>
+          {TINT_FILTERS.map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={filters.tints.includes(value)}
+              onClick={() => {
+                toggleTint(value);
+              }}
+              className={`rounded-full border px-2.5 py-1 text-xs font-medium text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy ${
+                value === "pink" ? "bg-accent-pink" : "bg-accent-green"
+              } ${
+                filters.tints.includes(value)
+                  ? "border-brand-navy ring-1 ring-brand-navy"
+                  : "border-border opacity-80 hover:opacity-100"
+              }`}
+            >
+              {TINT_FILTER_LABELS[value]}
             </button>
           ))}
         </fieldset>

@@ -1083,4 +1083,171 @@ describe("loadBoardColumns (integration)", () => {
     expect(cards.find((c) => c.id === customisation.id)?.hasDecorationLineMarker).toBe(false);
     expect(cards.find((c) => c.id === plain.id)?.hasDecorationLineMarker).toBe(false);
   });
+
+  describe("tile colour filter", () => {
+    async function makeOrder(options: {
+      properties?: { name: string; value: string }[];
+      productTitle?: string;
+      cardTintOverride?: "PINK" | "BLUE" | "NONE";
+      customerUpload?: boolean;
+    }) {
+      const shop = await db.shop.findFirstOrThrow();
+      const order = await db.shopifyOrder.create({
+        data: {
+          shopId: shop.id,
+          shopifyOrderGid: `gid://shopify/Order/${randomUUID()}`,
+          orderNumber: `#board-test-${randomUUID()}`,
+          shopifyCreatedAt: new Date(),
+          tags: [],
+          rawPayload: {},
+          workflowStatus: OrderStatus.NEW,
+          cardTintOverride: options.cardTintOverride ?? null,
+        },
+      });
+      createdOrderIds.push(order.id);
+      const line = await db.shopifyOrderLine.create({
+        data: {
+          orderId: order.id,
+          shopifyLineGid: `gid://shopify/LineItem/${randomUUID()}`,
+          productTitle: options.productTitle ?? "Plain Jumper",
+          quantity: 1,
+          properties: options.properties ? { create: options.properties } : undefined,
+        },
+      });
+      if (options.customerUpload) {
+        const asset = await db.customerArtworkAsset.create({
+          data: {
+            shopId: shop.id,
+            sourceUrl: `https://cdn.shopify.com/s/files/1/upload-${randomUUID()}.png`,
+            sourceType: "EXTERNAL_REFERENCE",
+          },
+        });
+        await db.artworkOrderLineLink.create({
+          data: { assetId: asset.id, orderLineId: line.id },
+        });
+      }
+      return order;
+    }
+
+    async function idsFor(tints: ("pink" | "green")[]) {
+      const shop = await db.shop.findFirstOrThrow();
+      const result = await loadBoard({
+        shopId: shop.id,
+        filters: { ...EMPTY_BOARD_FILTERS, tints },
+        sort: { field: "urgency_default" },
+        currentStaffUserId: "irrelevant",
+      });
+      return new Set(result.columns.flatMap((c) => c.cards).map((c) => c.id));
+    }
+
+    it("selects exactly the orders whose tile is pink or green, following the same precedence as the tile colours", async () => {
+      // pink: each way an order earns pink
+      const pinkProperty = await makeOrder({
+        properties: [{ name: "_options_summary", value: "Option set~:~Customize" }],
+      });
+      const pinkTitle = await makeOrder({ productTitle: "Custom Printing Hoodie" });
+      const pinkUpload = await makeOrder({ customerUpload: true });
+      const pinkOverride = await makeOrder({ cardTintOverride: "PINK" });
+      // green: a green marker, in a property or in the title
+      const greenProperty = await makeOrder({
+        properties: [{ name: "Option", value: "Custom Name" }],
+      });
+      const greenTitle = await makeOrder({ productTitle: "Long Tail Jumper - lower back" });
+      // green beats pink when both signals are present
+      const greenAndPink = await makeOrder({
+        properties: [
+          { name: "Option", value: "lower back" },
+          { name: "Add-Ons", value: "x" },
+        ],
+      });
+      // neither: embroidery wins (blue), manual BLUE / NONE override both, plain
+      const blueEmbroidery = await makeOrder({
+        properties: [
+          { name: "Decoration", value: "Embroidery" },
+          { name: "Option", value: "Custom Name" },
+        ],
+      });
+      const overriddenBlue = await makeOrder({
+        cardTintOverride: "BLUE",
+        properties: [{ name: "Add-Ons", value: "x" }],
+      });
+      const overriddenNone = await makeOrder({
+        cardTintOverride: "NONE",
+        properties: [{ name: "Option", value: "Custom Name" }],
+      });
+      const plain = await makeOrder({});
+
+      const pink = await idsFor(["pink"]);
+      for (const order of [pinkProperty, pinkTitle, pinkUpload, pinkOverride]) {
+        expect(pink.has(order.id)).toBe(true);
+      }
+      for (const order of [
+        greenProperty,
+        greenTitle,
+        greenAndPink,
+        blueEmbroidery,
+        overriddenBlue,
+        overriddenNone,
+        plain,
+      ]) {
+        expect(pink.has(order.id)).toBe(false);
+      }
+
+      const green = await idsFor(["green"]);
+      for (const order of [greenProperty, greenTitle, greenAndPink]) {
+        expect(green.has(order.id)).toBe(true);
+      }
+      for (const order of [
+        pinkProperty,
+        pinkTitle,
+        pinkUpload,
+        pinkOverride,
+        blueEmbroidery,
+        overriddenBlue,
+        overriddenNone,
+        plain,
+      ]) {
+        expect(green.has(order.id)).toBe(false);
+      }
+
+      // Both chosen: the union.
+      const both = await idsFor(["pink", "green"]);
+      for (const order of [pinkProperty, pinkOverride, greenProperty, greenAndPink]) {
+        expect(both.has(order.id)).toBe(true);
+      }
+      expect(both.has(plain.id)).toBe(false);
+      expect(both.has(blueEmbroidery.id)).toBe(false);
+    });
+
+    it("agrees with the colour each card is actually given", async () => {
+      // The filter and the tile are two implementations of one rule: check that
+      // every card the board returns is in the filtered set exactly when its own
+      // flags say it should be pink / green.
+      const order = await makeOrder({ properties: [{ name: "Add-Ons", value: "x" }] });
+      const shop = await db.shop.findFirstOrThrow();
+      const all = await loadBoard({
+        shopId: shop.id,
+        filters: EMPTY_BOARD_FILTERS,
+        sort: { field: "urgency_default" },
+        currentStaffUserId: "irrelevant",
+      });
+      const cards = all.columns.flatMap((c) => c.cards);
+      const pink = await idsFor(["pink"]);
+      const green = await idsFor(["green"]);
+      for (const card of cards) {
+        const manual = card.cardTintOverride;
+        const expectedPink =
+          manual === "PINK" ||
+          (manual === null &&
+            !card.hasEmbroideryLineMarker &&
+            !card.hasGreenLineMarker &&
+            (card.hasCustomerUpload || card.hasDecorationLineMarker));
+        const expectedGreen =
+          manual === null && !card.hasEmbroideryLineMarker && card.hasGreenLineMarker;
+        expect(pink.has(card.id), `pink for ${card.orderNumber}`).toBe(expectedPink);
+        expect(green.has(card.id), `green for ${card.orderNumber}`).toBe(expectedGreen);
+      }
+      expect(cards.some((c) => c.id === order.id)).toBe(true);
+    });
+  });
 });
